@@ -84,28 +84,76 @@ export function flattenTree(
   return flattenedItems
 }
 
-export function buildTree(flattenedItems: FlattenedItem[]): Item[] {
+/**
+ * Maps every tree id (see `getTreeItemId`) to the original item value at that position.
+ */
+export function indexItemsById(
+  items: Item[],
+  parentId: string | null = null,
+  index: Map<string, Item> = new Map(),
+): Map<string, Item> {
+  items.forEach((item, position) => {
+    const id = getTreeItemId(parentId, item._key, position)
+
+    index.set(id, item)
+
+    if (Array.isArray(item.children)) {
+      indexItemsById(item.children, id, index)
+    }
+  })
+
+  return index
+}
+
+/**
+ * Removes the tree bookkeeping that `flattenTree` adds. Only used when the original value is
+ * unknown: these names can also be real schema fields, so prefer the original value.
+ */
+function omitTreeMeta(item: FlattenedItem): Item {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const {id, parentId, depth, index, collapsed, ...value} = item
+
+  return value
+}
+
+/**
+ * Rebuilds a nested value from flattened items.
+ *
+ * Each node is rebuilt from its original value in `originals` (keyed by tree id), so fields that
+ * share a name with the tree bookkeeping (`id`, `parentId`, `depth`, `index`, `collapsed`) are
+ * preserved instead of being overwritten or dropped.
+ */
+export function buildTree(
+  flattenedItems: FlattenedItem[],
+  originals?: ReadonlyMap<string, Item>,
+): Item[] {
   const rootChildren: Item[] = []
   const nodes = new Map<string, Item>()
-  const items = flattenedItems.map((item) => ({
-    ...item,
-    children: item.collapsed ? item.children || [] : [],
-  }))
+  const entries = flattenedItems.map((item) => {
+    const original = originals?.get(item.id) ?? omitTreeMeta(item)
+    const node: Item = {
+      ...original,
+      // Collapsed items keep their children: those aren't part of the flattened list.
+      children: item.collapsed ? original.children || [] : [],
+    }
 
-  for (const item of items) {
-    nodes.set(item.id, item)
+    return {item, node}
+  })
+
+  for (const {item, node} of entries) {
+    nodes.set(item.id, node)
   }
 
-  for (const item of items) {
+  for (const {item, node} of entries) {
     if (item.parentId === null) {
-      rootChildren.push(item)
+      rootChildren.push(node)
       continue
     }
 
     const parent = nodes.get(item.parentId)
 
     if (parent) {
-      parent.children = [...(parent.children ?? []), item]
+      parent.children = [...(parent.children ?? []), node]
     }
   }
 

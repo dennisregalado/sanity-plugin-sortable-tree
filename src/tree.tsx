@@ -10,6 +10,7 @@ import {
   getDragDepth,
   getDescendants,
   getTreeItemId,
+  indexItemsById,
 } from './utils'
 import {TreeItem} from './tree-item'
 import {TreeItemOverlay} from './tree-overlay'
@@ -298,6 +299,8 @@ export function Tree({
     }
   }, [items])
 
+  // Original values by tree id, used to rebuild the value without losing fields on reorder/remove
+  const itemById = useMemo(() => indexItemsById(items), [items])
   const baseDragItems = useMemo(() => flattenTree(items, collapsedKeys), [collapsedKeys, items])
   const baseRenderItems = useMemo(
     () => flattenTreeForRender(items, collapsedKeys),
@@ -475,7 +478,6 @@ export function Tree({
               return {
                 ...item,
                 children: [...(Array.isArray(item.children) ? item.children : []), newItem],
-                collapsed: false, // Expand parent when adding child
               }
             }
             if (item.children && Array.isArray(item.children) && item.children.length > 0) {
@@ -527,7 +529,7 @@ export function Tree({
 
       const descendants = getDescendants(dragItems, id)
       const newItems = dragItems.filter((item) => item.id !== id && !descendants.has(item.id))
-      const tree = buildTree(newItems)
+      const tree = buildTree(newItems, itemById)
       const remainingIds = new Set(newItems.map((item) => item.id))
       const nextCollapsedKeys = new Set(
         [...collapsedKeys].filter((key) => key !== id && remainingIds.has(key)),
@@ -536,7 +538,7 @@ export function Tree({
       setCollapsedKeys(nextCollapsedKeys)
       onChange(sanitizeTreeItems(tree))
     },
-    [collapsedKeys, dragItems, onChange, sanitizeTreeItems, updateProjectedItems],
+    [collapsedKeys, dragItems, itemById, onChange, sanitizeTreeItems, updateProjectedItems],
   )
 
   const restoreSourceChildren = useCallback((activeItems: FlattenedItem[]) => {
@@ -837,7 +839,7 @@ export function Tree({
         const movedItem = sourceItem.current
           ? restoredItems.find((item) => item.id === sourceItem.current?.id)
           : undefined
-        const updatedTree = buildTree(restoredItems)
+        const updatedTree = buildTree(restoredItems, itemById)
 
         if (movedItem?.parentId) {
           manuallyToggledCollapsedKeysRef.current.add(movedItem.parentId)
@@ -927,7 +929,9 @@ export function Tree({
 
 function sanitizeItems(items: Item[], arraySchemaType?: any): Item[] {
   return items.map((item) => {
-    const sanitizedItem: Item & Partial<FlattenedItem> = {
+    // Tree bookkeeping is already removed by `buildTree`. Don't delete keys like `id`, `index` or
+    // `collapsed` here: they can be real fields in the user's schema.
+    const sanitizedItem: Item = {
       ...item,
     }
     const itemSchemaType = getArrayMemberSchemaType(
@@ -936,12 +940,6 @@ function sanitizeItems(items: Item[], arraySchemaType?: any): Item[] {
     )
     const childrenArraySchemaType = getChildrenArraySchemaType(itemSchemaType)
     const children = Array.isArray(item.children) ? item.children : []
-
-    delete sanitizedItem?.collapsed
-    delete sanitizedItem?.id
-    delete sanitizedItem?.parentId
-    delete sanitizedItem?.depth
-    delete sanitizedItem?.index
 
     if (childrenArraySchemaType && children.length > 0) {
       sanitizedItem.children = sanitizeItems(children, childrenArraySchemaType)
