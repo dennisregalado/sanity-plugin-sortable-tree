@@ -66,3 +66,12 @@ with default configuration for build & watch scripts.
 
 See [Testing a plugin in Sanity Studio](https://github.com/sanity-io/plugin-kit#testing-a-plugin-in-sanity-studio)
 on how to run this plugin with hotreload in the studio.
+
+## Release
+
+Releases are published to npm from GitHub Actions ([`publish.yml`](.github/workflows/publish.yml)); don't run `npm publish` locally.
+
+1. In your PR, bump `"version"` in `package.json` (e.g. `npm version minor --no-git-tag-version`).
+2. Merge it to `main`. The publish workflow runs the typecheck and build, publishes that version to npm with provenance, and creates the `v<version>` tag and GitHub release.
+
+Merges that don't change the version publish nothing. Versions with a pre-release suffix (e.g. `2.1.0-beta.0`) are published under the `next` dist-tag.
