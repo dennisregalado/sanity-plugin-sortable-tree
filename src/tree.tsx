@@ -32,6 +32,8 @@ interface Props {
   onItemOpen?(path: Path): void
   members?: ArrayOfObjectsMember[]
   maxDepth?: number
+  /** When true, no items can be added, moved or removed */
+  readOnly?: boolean
   props: ArrayOfObjectsInputProps<any>
 }
 
@@ -243,6 +245,7 @@ export function Tree({
   onChange,
   onItemOpen,
   maxDepth = 3,
+  readOnly = false,
 }: Props) {
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() =>
     collectDefaultCollapsedKeys(items),
@@ -416,9 +419,20 @@ export function Tree({
 
   const canAddItemToParent = useCallback(
     (parentId: string | null) => {
+      if (readOnly) return false
+
+      if (parentId !== null) {
+        const parentItem = memberById.get(parentId)?.item
+        const childrenField = parentItem?.members?.find(
+          (m: {kind?: string; name?: string}) => m.kind === 'field' && m.name === 'children',
+        )?.field
+
+        if (parentItem?.readOnly || childrenField?.readOnly) return false
+      }
+
       return createItemForArraySchema(getDestinationArraySchemaType(parentId)) !== null
     },
-    [getDestinationArraySchemaType],
+    [getDestinationArraySchemaType, memberById, readOnly],
   )
 
   const sanitizeTreeItems = useCallback(
@@ -455,6 +469,8 @@ export function Tree({
   const handleAddItem = useCallback(
     (parentId: string | null) => {
       updateProjectedItems(null)
+
+      if (!canAddItemToParent(parentId)) return
 
       const newItem = createItemForArraySchema(getDestinationArraySchemaType(parentId))
 
@@ -500,6 +516,7 @@ export function Tree({
       }
     },
     [
+      canAddItemToParent,
       collapsedKeys,
       getDestinationArraySchemaType,
       items,

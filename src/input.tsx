@@ -14,12 +14,16 @@ export function SortableTreeInput<Item extends ObjectItem>(props: ArrayOfObjects
   const items = (props.value || []) as unknown as TreeItemValue[]
 
   useEffect(() => {
+    // Never write to a document the user can't edit (read-only fields, published perspective,
+    // releases that aren't selected, missing permissions).
+    if (props.readOnly) return
+
     const result = ensureUniqueSiblingKeys(items)
 
     if (result.changed) {
       onChange(set(result.items))
     }
-  }, [items, onChange])
+  }, [items, onChange, props.readOnly])
 
   return (
     <Stack gap={2} style={{position: 'relative'}}>
@@ -28,6 +32,7 @@ export function SortableTreeInput<Item extends ObjectItem>(props: ArrayOfObjects
         props={props}
         items={items}
         maxDepth={maxDepth}
+        readOnly={props.readOnly}
         onChange={(newItems) => {
           onChange(set(newItems))
         }}
