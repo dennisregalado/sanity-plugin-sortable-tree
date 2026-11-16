@@ -1,4 +1,4 @@
-import {AddIcon} from '@sanity/icons'
+import {AddIcon} from '@sanity/icons/Add'
 import {Button} from '@sanity/ui'
 import {memo, useCallback} from 'react'
 

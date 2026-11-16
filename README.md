@@ -8,6 +8,16 @@ Sortable nested tree input for Sanity array fields.
 npm install sanity-plugin-sortable-tree
 ```
 
+### Requirements
+
+- **Sanity Studio v6** (`sanity@^6`).
+- `@sanity/ui@^4` and `@sanity/icons@^5` are peer dependencies. `sanity` already installs both, so you don't need to add them yourself; the plugin uses the Studio's own copies.
+- **Sanity Studio v5 is not supported** by this release, because it ships `@sanity/ui` 3 and `@sanity/icons` 3. If you're on Sanity 5, stay on `sanity-plugin-sortable-tree@1.x`:
+
+  ```sh
+  npm install sanity-plugin-sortable-tree@^1
+  ```
+
 ## Usage
 
 Add it as a plugin in `sanity.config.ts` (or .js):

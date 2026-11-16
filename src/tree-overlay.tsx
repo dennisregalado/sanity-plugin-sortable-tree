@@ -1,4 +1,5 @@
-import {ChevronDownIcon, DragHandleIcon} from '@sanity/icons'
+import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
+import {DragHandleIcon} from '@sanity/icons/DragHandle'
 import {memo, useMemo} from 'react'
 import type React from 'react'
 import {FlattenedItem} from './types'
