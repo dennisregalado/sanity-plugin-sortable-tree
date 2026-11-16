@@ -1,9 +1,14 @@
 import {useSortable} from '@dnd-kit/react/sortable'
 import type {PluginConstructor} from '@dnd-kit/abstract'
 import type React from 'react'
-import {DragHandleIcon, ChevronDownIcon, ChevronRightIcon, TrashIcon, EditIcon} from '@sanity/icons'
+import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
+import {ChevronRightIcon} from '@sanity/icons/ChevronRight'
+import {DragHandleIcon} from '@sanity/icons/DragHandle'
+import {EditIcon} from '@sanity/icons/Edit'
+import {TrashIcon} from '@sanity/icons/Trash'
 import {FlattenedItem} from './types'
-import {Box, Button, Card, Flex, Text, Tooltip} from '@sanity/ui'
+import {Box, Button, Card, Flex, Text} from '@sanity/ui'
+import {Tooltip} from '@sanity/ui/tooltip'
 import {memo, useMemo} from 'react'
 
 export interface Props {
