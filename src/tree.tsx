@@ -1,7 +1,7 @@
 import {configure} from '@dnd-kit/abstract'
-import {Accessibility, defaultPreset} from '@dnd-kit/dom'
+import {Accessibility, defaultPreset, Feedback} from '@dnd-kit/dom'
 import {isKeyboardEvent} from '@dnd-kit/dom/utilities'
-import {DragDropProvider, DragOverlay} from '@dnd-kit/react'
+import {DragDropProvider} from '@dnd-kit/react'
 import {DoubleChevronDownIcon} from '@sanity/icons/DoubleChevronDown'
 import {DoubleChevronUpIcon} from '@sanity/icons/DoubleChevronUp'
 import {Box, Button, Card, Flex, Grid, Text} from '@sanity/ui'
@@ -19,7 +19,8 @@ import {
 } from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
-import {MemberPreview, type RenderCallbacks} from './member-preview'
+import {keepDraggedRowLifted, restrictToList, snapToDepth} from './drag-feedback'
+import {type RenderCallbacks} from './member-preview'
 import {type AddableType, NewTreeItem} from './new-tree-item'
 import {
   CHILDREN_FIELD,
@@ -29,7 +30,7 @@ import {
   getRemovePatches,
 } from './patches'
 import {TreeItem} from './tree-item'
-import {TreeItemOverlay} from './tree-overlay'
+import {useDragFlip} from './use-drag-flip'
 import {FlattenedItem, type Item} from './types'
 import {
   flattenTree,
@@ -65,7 +66,6 @@ interface TreeRenderNode extends TreeNodePosition {
 }
 
 const COLLAPSE_DURATION_MS = 250
-const NO_ITEMS: FlattenedItem[] = []
 
 /**
  * Tree ids of the items that must be expanded to show `focusPath` (relative to the root array):
@@ -98,6 +98,15 @@ function hasUnshowableChildren(children: unknown): boolean {
     keys.add(child._key)
   }
   return false
+}
+
+// The dragged row settles into place (and follows keyboard moves) like the Studio's array items,
+// which use their sort transition for this (sanity/src/core/form/inputs/arrays/common/list.tsx)
+const SETTLE_TRANSITION = {duration: 200, easing: 'ease'}
+
+/** The hidden copy dnd-kit leaves in the dragged row's place, where it will be dropped */
+function getDropPlaceholder(element: Element | undefined): Element | null {
+  return element?.ownerDocument.querySelector('[data-dnd-placeholder]') ?? null
 }
 
 /** The visible title of a draggable row, for screen reader announcements */
@@ -306,7 +315,12 @@ export function Tree({
   // dnd-kit's default plugins, with announcements that use item titles and the Studio's locale
   const dragPlugins = useMemo(
     () => [
-      ...defaultPreset.plugins.filter((plugin) => plugin !== Accessibility),
+      ...defaultPreset.plugins.filter((plugin) => plugin !== Accessibility && plugin !== Feedback),
+      // No drag overlay: the dragged row itself is lifted and moves with the pointer
+      configure(Feedback, {
+        dropAnimation: SETTLE_TRANSITION,
+        keyboardTransition: SETTLE_TRANSITION,
+      }),
       configure(Accessibility, {
         screenReaderInstructions: {draggable: t('announce.instructions')},
         announcements: {
@@ -416,8 +430,20 @@ export function Tree({
     return projectedItems.find((item) => item.id === activeDragItemId)?.parentId ?? null
   }, [activeDragItemId, projectedItems])
 
-  // Set by keyboard moves: moves the drag overlay to the row's new position after it renders
+  // Set by keyboard moves: moves the dragged row to its new position after it renders
   const followSourceRef = useRef<(() => void) | null>(null)
+  // Rows slide out of the way of the dragged row
+  const treeRef = useRef<HTMLDivElement | null>(null)
+  const dragFlip = useDragFlip(treeRef)
+
+  // After every render while dragging: slide the rows that moved. dnd-kit calls the drag handlers
+  // in a transition, so the form's own update (from a drop's patches) can render before the
+  // projection does: then note where the rows are again, for the projection's render.
+  useLayoutEffect(() => {
+    keepDraggedRowLifted(treeRef.current)
+    dragFlip.play()
+    if (projectedItemsRef.current !== projectedItems) dragFlip.snapshot()
+  })
 
   useLayoutEffect(() => {
     const follow = followSourceRef.current
@@ -425,10 +451,15 @@ export function Tree({
     follow?.()
   }, [projectedItems])
 
-  const updateProjectedItems = useCallback((nextItems: FlattenedItem[] | null) => {
-    projectedItemsRef.current = nextItems
-    setProjectedItems(nextItems)
-  }, [])
+  const updateProjectedItems = useCallback(
+    (nextItems: FlattenedItem[] | null) => {
+      // While dragging: note where the rows are, to slide them from there once React moves them
+      if (nextItems || projectedItemsRef.current) dragFlip.snapshot()
+      projectedItemsRef.current = nextItems
+      setProjectedItems(nextItems)
+    },
+    [dragFlip],
+  )
 
   const memberById = useMemo(() => {
     const next = new Map<string, any>()
@@ -526,6 +557,20 @@ export function Tree({
   const sourceItem = useRef<FlattenedItem | null>(null)
   const sourceChildren = useRef<FlattenedItem[]>([])
   const sourceDescendantDepth = useRef(0)
+
+  // The dragged row moves vertically with the pointer, at the indentation of its projected depth
+  const getDragOffsetX = useCallback(() => {
+    const source = sourceItem.current
+    const projected = source && projectedItemsRef.current?.find(({id}) => id === source.id)
+
+    return projected ? (projected.depth - initialDepth.current) * indentation : null
+  }, [indentation])
+  const getTreeElement = useCallback(() => treeRef.current, [])
+  const dragModifiers = useMemo(
+    // oxlint-disable-next-line react/refs -- dnd-kit calls these during drags, not while rendering
+    () => [snapToDepth(getDragOffsetX), restrictToList(getTreeElement)],
+    [getDragOffsetX, getTreeElement],
+  )
 
   const handleExpandAll = useCallback(() => {
     updateProjectedItems(null)
@@ -808,6 +853,7 @@ export function Tree({
   return (
     <DragDropProvider
       plugins={dragPlugins}
+      modifiers={dragModifiers}
       onDragStart={(event) => {
         const {source} = event.operation
 
@@ -846,7 +892,8 @@ export function Tree({
 
         if (source && target && source.id !== target.id) {
           const activeItems = projectedItemsRef.current ?? dragItems
-          const offsetLeft = manager.dragOperation.transform.x
+          // The pointer's own offset: the dragged row's (`transform`) snaps to the projected depth
+          const offsetLeft = manager.dragOperation.position.delta.x
           const dragDepth = getDragDepth(offsetLeft, indentation)
           const projectedDepth = initialDepth.current + dragDepth
 
@@ -912,10 +959,11 @@ export function Tree({
 
           nextItems[nextIndex] = {...movedItem, depth, parentId}
 
-          // Move the drag overlay along with the row, once React has placed it (layout effect)
-          const before = source.element?.getBoundingClientRect()
+          // Move the dragged row to where it will be dropped, once React has placed it there (the
+          // row itself is lifted out of the list, so measure the placeholder left in its place)
+          const before = getDropPlaceholder(source.element)?.getBoundingClientRect()
           followSourceRef.current = () => {
-            const after = manager.dragOperation.source?.element?.getBoundingClientRect()
+            const after = getDropPlaceholder(source.element)?.getBoundingClientRect()
 
             if (before && after) {
               manager.actions.move({
@@ -945,7 +993,8 @@ export function Tree({
             }
           }
 
-          const offsetLeft = manager.dragOperation.transform.x
+          // The pointer's own offset: the dragged row's (`transform`) snaps to the projected depth
+          const offsetLeft = manager.dragOperation.position.delta.x
           const dragDepth = getDragDepth(offsetLeft, indentation)
 
           const projectedDepth = keyboardDepth ?? initialDepth.current + dragDepth
@@ -1049,7 +1098,7 @@ export function Tree({
         updateProjectedItems(null)
       }}
     >
-      <Card border padding={1} radius={2}>
+      <Card ref={treeRef} border padding={1} radius={2}>
         <Grid gap={1} as="ul" style={{listStyle: 'none', margin: 0, padding: 0}}>
           {renderTree.length ? (
             renderTree.map((node) => renderTreeNode(node))
@@ -1127,25 +1176,6 @@ export function Tree({
           )}
         </Grid>
       </Card>
-      <DragOverlay style={{width: '100%'}}>
-        {(overlayProps) => {
-          const item = dragSource?.item ?? dragItems.find(({id}) => id === String(overlayProps.id))
-          const member = item ? memberById.get(item.id) : undefined
-
-          return (
-            <TreeItemOverlay
-              descendants={dragSource?.children ?? NO_ITEMS}
-              hasChildren={item ? treeMeta.hasChildren.has(item.id) : false}
-              item={item}
-              preview={
-                member?.kind === 'item' ? (
-                  <MemberPreview member={member} callbacks={renderCallbacks} />
-                ) : null
-              }
-            />
-          )
-        }}
-      </DragOverlay>
     </DragDropProvider>
   )
 }
