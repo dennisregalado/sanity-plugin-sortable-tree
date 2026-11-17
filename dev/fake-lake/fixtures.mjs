@@ -24,6 +24,14 @@ const mainMenu = [
   item('contact', 'Contact', '/contact'),
 ]
 
+// Items with an untitled (invalid) child each under "Shop" and "About"
+const validationItems = [
+  item('home', 'Home', '/'),
+  item('shop', 'Shop', '/shop', [{_key: 'untitled', _type: 'menuItem', url: '/shop/new'}]),
+  item('about', 'About', '/about', [{_key: 'untitled2', _type: 'menuItem', url: '/about/x'}]),
+  item('contact', 'Contact', '/contact'),
+]
+
 function bigMenu(count) {
   const items = []
   for (let i = 0; i < count / 5; i++) {
@@ -47,12 +55,7 @@ export const fixtures = [
     _id: 'menu-validation',
     _type: 'menu',
     title: 'Validation',
-    items: [
-      item('home', 'Home', '/'),
-      item('shop', 'Shop', '/shop', [{_key: 'untitled', _type: 'menuItem', url: '/shop/new'}]),
-      item('about', 'About', '/about', [{_key: 'untitled2', _type: 'menuItem', url: '/about/x'}]),
-      item('contact', 'Contact', '/contact'),
-    ],
+    items: validationItems,
   },
   {
     _id: 'menu-options',
@@ -76,6 +79,14 @@ export const fixtures = [
       {_key: 'divider', _type: 'menuDivider', label: 'Divider'},
       item('shop', 'Shop', '/shop', [item('men', 'Men', '/shop/men')]),
     ],
+  },
+  // The Studio's own array input with the same items, as a reference for dragging
+  {_id: 'menu-native', _type: 'nativeMenu', title: 'Native array input', items: mainMenu},
+  {
+    _id: 'menu-native-validation',
+    _type: 'nativeMenu',
+    title: 'Native array input with validation',
+    items: validationItems,
   },
   {
     _id: 'menu-fields',
