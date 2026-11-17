@@ -257,6 +257,8 @@ function TreeItemComponent({
           {searching && !isDisabled ? (
             <ReferenceSearch
               to={referenceTargets}
+              options={member.item.schemaType.options}
+              path={member.item.path}
               autoFocus={replacing || autoFocusSearch}
               onPick={handlePick}
               onDone={handleSearchDone}

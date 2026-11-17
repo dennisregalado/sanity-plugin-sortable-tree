@@ -13,14 +13,24 @@ import {
 import {Popover} from '@sanity/ui/popover'
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {
+  createSearch,
+  DEFAULT_STUDIO_CLIENT_OPTIONS,
+  getPublishedId,
+  type Path,
   type SchemaType,
   SearchResultItemPreview,
+  type Source,
   useClient,
+  useFormValue,
   usePerspective,
+  useSource,
   useTranslation,
 } from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
+import {isRecord} from './utils'
+
+type SanityClient = ReturnType<Source['getClient']>
 
 const API_VERSION = '2025-02-19'
 /** Height of a row's preview button (a compact preview in a `padding={1}` bleed button) */
@@ -59,6 +69,10 @@ export interface ReferenceTarget {
 interface Props {
   /** The types the reference can point to (`schemaType.to`) */
   to: SchemaType[]
+  /** The reference type's `options` (its search `filter` and `filterParams`) */
+  options?: ReferenceSearchOptions
+  /** The reference's path in the document (for a `filter` function) */
+  path: Path
   /** Focus the search when it mounts */
   autoFocus?: boolean
   readOnly?: boolean
@@ -108,74 +122,162 @@ export function useReferencedType(
  */
 const keepInputFocus = (event: React.MouseEvent) => event.preventDefault()
 
-const isFieldPath = (field: unknown): field is string =>
-  typeof field === 'string' && /^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*$/.test(field)
-
-/** The fields searched for each type: what its preview shows as the title */
-function getTitleFields(to: SchemaType[]): string[] {
-  const fields = to.map((type) => {
-    const select: unknown = type.preview?.select
-    const title =
-      typeof select === 'object' && select !== null && 'title' in select ? select.title : 'title'
-    // `link.title` style selections follow a reference: search the document's own title instead
-    return isFieldPath(title) && !title.includes('.') ? title : 'title'
-  })
-  return [...new Set(fields)]
+/** The schema's reference `options`: `filter` (a GROQ string or a resolver) and `filterParams` */
+interface ReferenceSearchOptions {
+  filter?: unknown
+  filterParams?: Record<string, unknown>
 }
 
-/** Documents of the allowed types, newest first, whose title matches every word typed */
-function useReferenceTargets(to: SchemaType[], query: string, enabled: boolean) {
-  const client = useClient({apiVersion: API_VERSION})
-  const types = useMemo(() => to.map((type) => type.name), [to])
-  const titleFields = useMemo(() => getTitleFields(to), [to])
-  const [result, setResult] = useState<{key: string; targets: ReferenceTarget[]} | null>(null)
-  const terms = query
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => `${word}*`)
-  const key = `${types.join(',')}|${terms.join(' ')}`
+/** Search depth the Studio's reference input uses unless configured otherwise */
+const MAX_FIELD_DEPTH = 5
+
+/**
+ * The schema's `options.filter`, resolved like the Studio's reference input does: a GROQ string
+ * with `filterParams`, or a function of the document, the reference's parent and the perspective
+ */
+async function resolveFilter(
+  options: ReferenceSearchOptions | undefined,
+  context: {
+    document: unknown
+    path: Path
+    perspective: string[]
+    getClient: (options: {apiVersion: string}) => SanityClient
+  },
+): Promise<{filter?: string; params?: Record<string, unknown>; perspective?: string[]}> {
+  if (!options) return {}
+  if (typeof options.filter === 'function') {
+    const parentPath = context.path.slice(0, -1)
+    // oxlint-disable-next-line no-unsafe-type-assertion -- the schema's own filter resolver
+    const resolver = options.filter as (context: Record<string, unknown>) => unknown
+    const resolved: unknown = await resolver({
+      document: context.document,
+      parentPath,
+      parent: getAt(context.document, parentPath),
+      perspective: context.perspective,
+      getClient: context.getClient,
+    })
+    return isRecord(resolved) ? resolved : {}
+  }
+  return typeof options.filter === 'string'
+    ? {filter: options.filter, params: options.filterParams}
+    : {}
+}
+
+/** The value at a path of keys, `_key` segments and indexes */
+function getAt(value: unknown, path: Path): unknown {
+  let current = value
+  for (const segment of path) {
+    if (Array.isArray(current)) {
+      current =
+        typeof segment === 'number'
+          ? current[segment]
+          : isRecord(segment) && '_key' in segment
+            ? current.find((item: unknown) => isRecord(item) && item._key === segment._key)
+            : undefined
+    } else if (isRecord(current) && typeof segment === 'string') {
+      current = current[segment]
+    } else {
+      return undefined
+    }
+  }
+  return current
+}
+
+/**
+ * Documents the reference can point to, from the Studio's own search (what its reference input
+ * uses): every allowed type, the workspace's search strategy, each type's search configuration
+ * and weights, the current perspective and the schema's `options.filter`
+ */
+function useReferenceTargets(
+  to: SchemaType[],
+  options: ReferenceSearchOptions | undefined,
+  path: Path,
+  query: string,
+  enabled: boolean,
+) {
+  // The Studio's reference input reads the workspace's search strategy and client from it
+  // oxlint-disable-next-line typescript/no-deprecated -- internal, like createSearch itself
+  const source = useSource()
+  const client = useMemo(() => source.getClient(DEFAULT_STUDIO_CLIENT_OPTIONS), [source])
+  const {perspectiveStack} = usePerspective()
+  const document = useFormValue([])
+  const [result, setResult] = useState<{query: string; targets: ReferenceTarget[]} | null>(null)
 
   useEffect(() => {
     if (!enabled) return undefined
     let cancelled = false
-    const filter = terms.length
-      ? ` && (${titleFields.map((field) => `${field} match $terms`).join(' || ')})`
-      : ''
-    // Drafts and published documents (not release versions), merged by published id below
-    const groq = `*[_type in $types && !(_id in path("versions.**"))${filter}] | order(_updatedAt desc) [0...${LIMIT * 2}] {_id, _type}`
+    let unsubscribe = () => {}
 
-    void client
-      .fetch<Array<{_id: string; _type: string}>>(groq, {types, terms})
-      .then(
-        (documents) => {
-          const byId = new Map<string, ReferenceTarget>()
-          for (const document of documents) {
-            const isDraft = document._id.startsWith('drafts.')
-            const id = isDraft ? document._id.slice('drafts.'.length) : document._id
-            const known = byId.get(id)
-            if (known) {
-              if (!isDraft) known.draftOnly = false
-              continue
-            }
-            byId.set(id, {id, type: document._type, draftOnly: isDraft})
-          }
-          return [...byId.values()].slice(0, LIMIT)
-        },
-        () => [],
-      )
-      .then((targets) => {
-        if (!cancelled) setResult({key, targets})
+    void resolveFilter(options, {
+      document,
+      path,
+      perspective: perspectiveStack,
+      getClient: source.getClient,
+    })
+      .then(({filter, params, perspective}) => {
+        if (cancelled) return undefined
+        const searchPerspective = perspective ?? perspectiveStack
+        const search = createSearch(to, client, {
+          filter,
+          params,
+          tag: 'search.reference',
+          maxDepth: MAX_FIELD_DEPTH,
+          strategy: source.search.strategy,
+          perspective: searchPerspective,
+        })
+        const subscription = search(query.trim(), {
+          perspective: searchPerspective,
+          limit: LIMIT,
+        }).subscribe({
+          next: ({hits}) => {
+            void withPublishedState(
+              client,
+              hits.map(({hit}) => hit),
+            ).then((targets) => {
+              if (!cancelled) setResult({query, targets})
+              return undefined
+            })
+          },
+          error: () => {
+            if (!cancelled) setResult({query, targets: []})
+          },
+        })
+        unsubscribe = () => subscription.unsubscribe()
         return undefined
       })
+      .catch(() => {
+        if (!cancelled) setResult({query, targets: []})
+      })
+
     return () => {
       cancelled = true
+      unsubscribe()
     }
-    // `key` covers `types` and `terms`
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, enabled, key, titleFields])
+  }, [client, document, enabled, options, path, perspectiveStack, query, source, to])
 
-  return result?.key === key ? result.targets : null
+  return result?.query === query ? result.targets : null
+}
+
+/** The hits as targets (by published id, without duplicates), marking those never published */
+async function withPublishedState(
+  client: SanityClient,
+  hits: Array<{_id: string; _type?: string}>,
+): Promise<ReferenceTarget[]> {
+  const byId = new Map<string, ReferenceTarget>()
+  for (const hit of hits) {
+    const id = getPublishedId(hit._id)
+    if (!byId.has(id) && hit._type) byId.set(id, {id, type: hit._type, draftOnly: true})
+  }
+  if (!byId.size) return []
+  const published = await client
+    .withConfig({perspective: 'raw'})
+    .fetch<string[]>('*[_id in $ids]._id', {ids: [...byId.keys()]})
+    .catch(() => [...byId.keys()])
+  for (const id of published) {
+    const target = byId.get(id)
+    if (target) target.draftOnly = false
+  }
+  return [...byId.values()]
 }
 
 /**
@@ -183,7 +285,7 @@ function useReferenceTargets(to: SchemaType[], query: string, enabled: boolean) 
  * listing the documents it can point to, narrowed down as you type. Picking one sets the
  * reference; Escape or leaving the search keeps the current one.
  */
-export function ReferenceSearch({to, autoFocus, readOnly, onPick, onDone}: Props) {
+export function ReferenceSearch({to, options, path, autoFocus, readOnly, onPick, onDone}: Props) {
   const {t} = useTranslation(sortableTreeLocaleNamespace)
   const perspective = usePerspective()
   const [query, setQuery] = useState('')
@@ -192,7 +294,7 @@ export function ReferenceSearch({to, autoFocus, readOnly, onPick, onDone}: Props
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const targets = useReferenceTargets(to, query, open)
+  const targets = useReferenceTargets(to, options, path, query, open)
   const typeByName = useMemo(() => new Map(to.map((type) => [type.name, type])), [to])
 
   useEffect(() => {
