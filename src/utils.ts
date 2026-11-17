@@ -1,133 +1,112 @@
-import {UniqueIdentifier} from '@dnd-kit/abstract'
-import {randomKey} from '@sanity/util/content'
+import type {UniqueIdentifier} from '@dnd-kit/abstract'
 
-import type {Item, FlattenedItem} from './types'
+import type {FlattenedItem, Item} from './types'
 
-export function getTreeItemId(parentId: string | null, key: string, _index: number) {
-  const segment = key
-
-  return parentId ? `${parentId}/${segment}` : segment
+export function getTreeItemId(parentId: string | null, key: string): string {
+  return parentId ? `${parentId}/${key}` : key
 }
 
-export function ensureUniqueSiblingKeys(items: Item[]): {items: Item[]; changed: boolean} {
-  let changed = false
+/** Whether `value` is an array item the tree can show: an object with a string `_key` */
+export function isTreeItem(value: unknown): value is Item {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '_key' in value &&
+    typeof value._key === 'string' &&
+    value._key.length > 0
+  )
+}
+
+/** Whether `value` is a plain object */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** The valid children of an item. Malformed `children` (not an array) count as none. */
+export function getChildItems(item: Item): Item[] {
+  return Array.isArray(item.children) ? item.children : []
+}
+
+/**
+ * Visits every item depth-first, with its tree id. Items the tree can't show (not an object,
+ * no `_key`, or a `_key` already used by an earlier sibling) are skipped with their children:
+ * the Studio reports those in the item's own dialog, and they're never written to by the tree.
+ */
+export function walkTree(
+  items: unknown,
+  visit: (
+    item: Item,
+    id: string,
+    parentId: string | null,
+    depth: number,
+    index: number,
+  ) => boolean | void,
+  parentId: string | null = null,
+  depth = 0,
+): void {
+  if (!Array.isArray(items)) return
+
   const seenKeys = new Set<string>()
+  let index = 0
 
-  const nextItems = items.map((item) => {
-    let key = item._key
+  for (const item of items) {
+    if (!isTreeItem(item) || seenKeys.has(item._key)) continue
+    seenKeys.add(item._key)
 
-    if (!key || seenKeys.has(key)) {
-      changed = true
-
-      do {
-        key = randomKey(12)
-      } while (seenKeys.has(key))
+    const id = getTreeItemId(parentId, item._key)
+    // Returning false skips the item's children
+    if (visit(item, id, parentId, depth, index) !== false) {
+      walkTree(item.children, visit, id, depth + 1)
     }
-
-    seenKeys.add(key)
-
-    const hasChildren = Array.isArray(item.children)
-    const nextChildren = hasChildren ? ensureUniqueSiblingKeys(item.children ?? []) : undefined
-
-    if (key !== item._key || nextChildren?.changed) {
-      changed = true
-
-      return {
-        ...item,
-        _key: key,
-        ...(nextChildren ? {children: nextChildren.items} : {}),
-      }
-    }
-
-    return item
-  })
-
-  return {items: nextItems, changed}
+    index += 1
+  }
 }
 
+/**
+ * Flattens the tree into display order. With `collapsedKeys`, children of collapsed items are
+ * left out (`skipCollapsedChildren`, used while dragging) or kept (used for rendering, so
+ * collapsed subtrees can animate).
+ */
 export function flattenTree(
   items: Item[],
   collapsedKeys: ReadonlySet<string> = new Set(),
-  parentId: string | null = null,
-  depth = 0,
+  skipCollapsedChildren = true,
 ): FlattenedItem[] {
   const flattenedItems: FlattenedItem[] = []
 
-  const walk = (
-    treeItems: Item[] | undefined,
-    currentParentId: string | null,
-    currentDepth: number,
-  ) => {
-    if (!treeItems) return
+  walkTree(items, (item, id, parentId, depth, index) => {
+    const collapsed = collapsedKeys.has(id)
 
-    treeItems.forEach((item, index) => {
-      const id = getTreeItemId(currentParentId, item._key, index)
-      const collapsed = collapsedKeys.has(id)
+    flattenedItems.push({...item, id, collapsed, parentId, depth, index})
 
-      flattenedItems.push({
-        ...item,
-        id,
-        collapsed,
-        parentId: currentParentId,
-        depth: currentDepth,
-        index,
-      })
-
-      if (!collapsed) {
-        walk(item.children, id, currentDepth + 1)
-      }
-    })
-  }
-
-  walk(items, parentId, depth)
+    return !(collapsed && skipCollapsedChildren)
+  })
 
   return flattenedItems
-}
-
-export function buildTree(flattenedItems: FlattenedItem[]): Item[] {
-  const rootChildren: Item[] = []
-  const nodes = new Map<string, Item>()
-  const items = flattenedItems.map((item) => ({
-    ...item,
-    children: item.collapsed ? item.children || [] : [],
-  }))
-
-  for (const item of items) {
-    nodes.set(item.id, item)
-  }
-
-  for (const item of items) {
-    if (item.parentId === null) {
-      rootChildren.push(item)
-      continue
-    }
-
-    const parent = nodes.get(item.parentId)
-
-    if (parent) {
-      parent.children = [...(parent.children ?? []), item]
-    }
-  }
-
-  return rootChildren
 }
 
 export function getDragDepth(offset: number, indentationWidth: number) {
   return Math.round(offset / indentationWidth)
 }
 
+/**
+ * Where the dragged item lands: its depth and new parent, from where the pointer is. With
+ * `canHaveChildren`, it never nests under an item that can't hold children (a reference, or an
+ * item type without a `children` field): it stays a sibling of that item instead.
+ */
 export function getProjection(
   items: FlattenedItem[],
   targetId: UniqueIdentifier,
   projectedDepth: number,
   maxDepth = Number.POSITIVE_INFINITY,
+  canHaveChildren: (item: FlattenedItem) => boolean = () => true,
 ) {
   const targetItemIndex = items.findIndex(({id}) => id === String(targetId))
   const previousItem = items[targetItemIndex - 1]
   const targetItem = items[targetItemIndex]
   const nextItem = items[targetItemIndex + 1]
   const maxProjectedDepth = Math.min(
-    getMaxDepth(targetItem, previousItem),
+    getMaxDepth(targetItem, previousItem, canHaveChildren),
     Math.max(0, maxDepth - 1),
   )
   const minDepth = Math.min(getMinDepth(nextItem), maxProjectedDepth)
@@ -163,10 +142,15 @@ export function getProjection(
   }
 }
 
-function getMaxDepth(targetItem: FlattenedItem, previousItem: FlattenedItem | undefined) {
+function getMaxDepth(
+  targetItem: FlattenedItem,
+  previousItem: FlattenedItem | undefined,
+  canHaveChildren: (item: FlattenedItem) => boolean,
+) {
   if (!previousItem) return 0
 
-  return Math.min(targetItem.depth + 1, previousItem.depth + 1)
+  const previousMax = canHaveChildren(previousItem) ? previousItem.depth + 1 : previousItem.depth
+  return Math.min(targetItem.depth + 1, previousMax)
 }
 
 function getMinDepth(nextItem: FlattenedItem) {
@@ -205,4 +189,17 @@ export function getDescendants(
   visitChildren(parentId)
 
   return descendants
+}
+
+/**
+ * Whether a schema type is a reference (or a type based on one). Sanity's own
+ * `isReferenceSchemaType` is internal, so this mirrors it: walk the type chain to `reference`.
+ */
+export function isReferenceType(schemaType: unknown): boolean {
+  let type: unknown = schemaType
+  for (let depth = 0; isRecord(type) && depth < 20; depth++) {
+    if (type.name === 'reference') return true
+    type = type.type
+  }
+  return false
 }

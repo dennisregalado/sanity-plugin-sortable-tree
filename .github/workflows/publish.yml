@@ -54,7 +54,10 @@ jobs:
       - if: steps.check.outputs.publish == 'true'
         run: npm ci
 
-      # prepublishOnly runs the typecheck and the build.
+      - if: steps.check.outputs.publish == 'true'
+        run: npm run lint && npm run typecheck && npm test
+
+      # prepublishOnly runs the build (which verifies the package first).
       - name: Publish to npm
         if: steps.check.outputs.publish == 'true'
         env:

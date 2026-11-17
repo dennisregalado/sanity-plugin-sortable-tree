@@ -1,25 +1,49 @@
-import {useEffect} from 'react'
-import {ArrayOfObjectsInputProps, ObjectItem} from 'sanity'
-import {Tree} from './tree'
-import {set} from 'sanity'
 import {Box, Stack} from '@sanity/ui'
-import type {Item as TreeItemValue} from './types'
-import {ensureUniqueSiblingKeys} from './utils'
+import {useCallback, useMemo} from 'react'
+import {type ArrayOfObjectsInputProps, type FormPatch, type Path} from 'sanity'
 
-export function SortableTreeInput<Item extends ObjectItem>(props: ArrayOfObjectsInputProps<Item>) {
-  const {members, onChange, schemaType} = props
+import {Tree} from './tree'
+import type {Item} from './types'
+import {isReferenceType, isTreeItem} from './utils'
+
+const EMPTY: Item[] = []
+
+/**
+ * The tree input. The plugin uses it for arrays with `options.tree`; it can also be set directly as
+ * a field's `components.input`.
+ *
+ * @public
+ */
+export function SortableTreeInput(props: ArrayOfObjectsInputProps): React.JSX.Element {
+  const {members, onChange, onItemOpen, onPathFocus, path, schemaType} = props
 
   const maxDepth = schemaType.options?.maxDepth ?? 3
 
-  const items = (props.value || []) as unknown as TreeItemValue[]
+  const items = useMemo(
+    () => (Array.isArray(props.value) ? props.value.filter(isTreeItem) : EMPTY),
+    [props.value],
+  )
 
-  useEffect(() => {
-    const result = ensureUniqueSiblingKeys(items)
+  // The hidden copy of the default input only hosts the items' edit dialogs. References have no
+  // dialog (the tree row shows their reference search), and a second, hidden reference search
+  // would fight the row's one over focus and clear the reference on "outside" clicks.
+  const hiddenProps = useMemo(() => {
+    const dialogMembers = members.filter(
+      (member) => !(member.kind === 'item' && isReferenceType(member.item.schemaType)),
+    )
+    return dialogMembers.length === members.length ? props : {...props, members: dialogMembers}
+  }, [members, props])
 
-    if (result.changed) {
-      onChange(set(result.items))
-    }
-  }, [items, onChange])
+  const handlePatch = useCallback((patches: FormPatch[]) => onChange(patches), [onChange])
+
+  // `onItemOpen` takes an absolute path, `onPathFocus` a relative one (like the tree's paths)
+  const handleItemOpen = useCallback(
+    (itemPath: Path, focusPath?: Path) => {
+      onItemOpen([...path, ...itemPath])
+      if (focusPath) onPathFocus(focusPath)
+    },
+    [onItemOpen, onPathFocus, path],
+  )
 
   return (
     <Stack gap={2} style={{position: 'relative'}}>
@@ -28,12 +52,9 @@ export function SortableTreeInput<Item extends ObjectItem>(props: ArrayOfObjects
         props={props}
         items={items}
         maxDepth={maxDepth}
-        onChange={(newItems) => {
-          onChange(set(newItems))
-        }}
-        onItemOpen={(path) => {
-          props.onPathFocus(path)
-        }}
+        readOnly={props.readOnly}
+        onPatch={handlePatch}
+        onItemOpen={handleItemOpen}
       />
       <Box
         aria-hidden
@@ -49,7 +70,7 @@ export function SortableTreeInput<Item extends ObjectItem>(props: ArrayOfObjects
           pointerEvents: 'none',
         }}
       >
-        {props.renderDefault(props as any)}
+        {props.renderDefault(hiddenProps)}
       </Box>
     </Stack>
   )

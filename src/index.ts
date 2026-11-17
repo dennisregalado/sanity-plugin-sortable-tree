@@ -1,15 +1,14 @@
-import React from 'react'
-import {definePlugin, type ArrayOfObjectsInputProps, type InputProps} from 'sanity'
+import {definePlugin} from 'sanity'
 
+import {FormInput} from './form-input'
+import {sortableTreeLocaleNamespace, sortableTreeUsEnglishLocaleBundle} from './i18n'
 import {SortableTreeInput} from './input'
 import type {SortableTreeArrayOptions} from './options'
 
 export {SortableTreeInput}
 export type {Item, FlattenedItem} from './types'
 export type {SortableTreeArrayOptions}
-
-// Ensure ArrayOptions augmentation is loaded with the plugin
-export type {} from './options'
+export {sortableTreeLocaleNamespace}
 
 /**
  * Usage in `sanity.config.ts` (or .js)
@@ -32,17 +31,10 @@ export type {} from './options'
 export const sortableTree = definePlugin(() => {
   return {
     name: 'sanity-plugin-sortable-tree',
+    i18n: {bundles: [sortableTreeUsEnglishLocaleBundle]},
     form: {
       components: {
-        input: (props: InputProps) => {
-          if (props.schemaType?.name === 'array' && props.schemaType?.options?.tree) {
-            return React.createElement(SortableTreeInput, {
-              ...(props as ArrayOfObjectsInputProps),
-            })
-          }
-
-          return props.renderDefault(props)
-        },
+        input: FormInput,
       },
     },
   }

@@ -1,110 +1,168 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {DragDropProvider, DragOverlay} from '@dnd-kit/react'
+import {configure} from '@dnd-kit/abstract'
+import {Accessibility, defaultPreset, Feedback} from '@dnd-kit/dom'
 import {isKeyboardEvent} from '@dnd-kit/dom/utilities'
+import {DragDropProvider} from '@dnd-kit/react'
+import {DoubleChevronDownIcon} from '@sanity/icons/DoubleChevronDown'
+import {DoubleChevronUpIcon} from '@sanity/icons/DoubleChevronUp'
+import {Box, Button, Card, Flex, Grid, Text} from '@sanity/ui'
+import {useToast} from '@sanity/ui/toast'
+import {Tooltip} from '@sanity/ui/tooltip'
 import {randomKey} from '@sanity/util/content'
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
+import {
+  type ArrayOfObjectsInputProps,
+  type ArrayOfObjectsMember,
+  type FormPatch,
+  type Path,
+  setIfMissing,
+  useTranslation,
+} from 'sanity'
+
+import {keepDraggedRowLifted, restrictToList, snapToDepth} from './drag-feedback'
+import {sortableTreeLocaleNamespace} from './i18n'
+import {type RenderCallbacks} from './member-preview'
+import {type AddableType, NewTreeItem} from './new-tree-item'
+import {
+  CHILDREN_FIELD,
+  getAppendPatches,
+  getChildrenPath,
+  getMovePatches,
+  getRemovePatches,
+  type PatchInput,
+  prefixItemPatches,
+} from './patches'
+import {TreeItem} from './tree-item'
 import {FlattenedItem, type Item} from './types'
+import {useCanHover} from './use-can-hover'
+import {useDragFlip} from './use-drag-flip'
+import {useRowWindowing} from './use-row-windowing'
 import {
   flattenTree,
-  buildTree,
-  getProjection,
-  getDragDepth,
   getDescendants,
-  getTreeItemId,
+  getDragDepth,
+  getProjection,
+  isRecord,
+  isReferenceType,
+  isTreeItem,
+  walkTree,
 } from './utils'
-import {TreeItem} from './tree-item'
-import {TreeItemOverlay} from './tree-overlay'
-import {NewTreeItem} from './new-tree-item'
-import {Box, Card, Grid, Text} from '@sanity/ui'
-import {
-  ArrayOfObjectsItem,
-  ArrayOfObjectsInputProps,
-  ArrayOfObjectsMember,
-  ObjectInputProps,
-  type Path,
-  SanityDefaultPreview,
-} from 'sanity'
 
 interface Props {
   items: Item[]
   indentation?: number
-  onChange(items: Item[]): void
-  onItemOpen?(path: Path): void
+  /** Called with patches relative to the root array */
+  onPatch: (patches: FormPatch[]) => void
+  /**
+   * Called with the path of an item to open, and the path of its first field to focus (both
+   * relative to the root array)
+   */
+  onItemOpen?: (path: Path, focusPath?: Path) => void
   members?: ArrayOfObjectsMember[]
   maxDepth?: number
+  /** When true, no items can be added, moved or removed */
+  readOnly?: boolean
   props: ArrayOfObjectsInputProps<any>
 }
 
-interface TreeRenderNode extends Omit<FlattenedItem, 'children'> {
+type TreeNodePosition = Pick<FlattenedItem, 'id' | 'parentId' | 'depth' | 'index' | 'collapsed'>
+
+interface TreeRenderNode extends TreeNodePosition {
   children: TreeRenderNode[]
 }
 
 const COLLAPSE_DURATION_MS = 250
 
+const ROW_STYLE: React.CSSProperties = {listStyle: 'none'}
+
+/** Trees with more rows than this only mount the rows near the viewport (see useRowWindowing) */
+const WINDOWING_THRESHOLD = 150
+
+// Row geometry, for placeholder heights of rows that haven't been on screen yet
+const ROW_HEIGHT = 51
+const ROW_GAP = 4
+const ADD_ROW_HEIGHT = 25
+
+/** Estimated height of a row with its (expanded) subtree */
+function estimateHeight(node: TreeRenderNode, collapsedKeys: ReadonlySet<string>): number {
+  if (!node.children.length || collapsedKeys.has(node.id)) return ROW_HEIGHT
+
+  const children = node.children.reduce(
+    (sum, child) => sum + estimateHeight(child, collapsedKeys) + ROW_GAP,
+    0,
+  )
+  return ROW_HEIGHT + ROW_GAP + children + ADD_ROW_HEIGHT
+}
+
+/**
+ * Tree ids of the items that must be expanded to show `focusPath` (relative to the root array):
+ * every item on the path except the last one, which is the focused item itself.
+ */
+function getFocusAncestorIds(focusPath: Path | undefined): string[] {
+  return getFocusItemIds(focusPath).slice(0, -1)
+}
+
+/** Tree ids of every item on `focusPath`: its parents and the focused item itself */
+function getFocusItemIds(focusPath: Path | undefined): string[] {
+  const ids: string[] = []
+  let id: string | null = null
+
+  for (let index = 0; index < (focusPath?.length ?? 0); index += 2) {
+    const segment = focusPath?.[index]
+    if (!segment || typeof segment !== 'object' || !('_key' in segment)) break
+
+    id = id ? `${id}/${segment._key}` : segment._key
+    ids.push(id)
+    if (focusPath?.[index + 1] !== CHILDREN_FIELD) break
+  }
+
+  return ids
+}
+
+/** Whether `children` holds data the tree skips: not an array, items without keys, or repeated keys */
+function hasUnshowableChildren(children: unknown): boolean {
+  if (children === undefined || children === null) return false
+  if (!Array.isArray(children)) return true
+
+  const keys = new Set<string>()
+  for (const child of children) {
+    if (!isTreeItem(child) || keys.has(child._key)) return true
+    keys.add(child._key)
+  }
+  return false
+}
+
+// The dragged row settles into place (and follows keyboard moves) like the Studio's array items,
+// which use their sort transition for this (sanity/src/core/form/inputs/arrays/common/list.tsx)
+const SETTLE_TRANSITION = {duration: 200, easing: 'ease'}
+
+/** The hidden copy dnd-kit leaves in the dragged row's place, where it will be dropped */
+function getDropPlaceholder(element: Element | undefined): Element | null {
+  return element?.ownerDocument.querySelector('[data-dnd-placeholder]') ?? null
+}
+
+/** The visible title of a draggable row, for screen reader announcements */
+function getRowTitle(element: Element | undefined): string {
+  return element?.textContent?.trim() || ''
+}
+
 function collectDefaultCollapsedKeys(items: Item[]) {
   const collapsedKeys = new Set<string>()
 
-  const visitItems = (treeItems: Item[], parentId: string | null = null) => {
-    treeItems.forEach((item, index) => {
-      const id = getTreeItemId(parentId, item._key, index)
-      const childCount = item.children?.length ?? 0
-
-      if (item.collapsed) {
-        collapsedKeys.add(id)
-      }
-
-      if (item.children && childCount > 0) {
-        visitItems(item.children, id)
-      }
-    })
-  }
-
-  visitItems(items)
+  walkTree(items, (item, id) => {
+    if (item.collapsed) {
+      collapsedKeys.add(id)
+    }
+  })
 
   return collapsedKeys
-}
-
-function flattenTreeForRender(
-  items: Item[],
-  collapsedKeys: ReadonlySet<string>,
-  parentId: string | null = null,
-  depth = 0,
-): FlattenedItem[] {
-  const flattenedItems: FlattenedItem[] = []
-
-  const walk = (
-    treeItems: Item[] | undefined,
-    currentParentId: string | null,
-    currentDepth: number,
-  ) => {
-    if (!treeItems) return
-
-    treeItems.forEach((item, index) => {
-      const id = getTreeItemId(currentParentId, item._key, index)
-      const collapsed = collapsedKeys.has(id)
-
-      flattenedItems.push({
-        ...item,
-        id,
-        collapsed,
-        parentId: currentParentId,
-        depth: currentDepth,
-        index,
-      })
-      walk(item.children, id, currentDepth + 1)
-    })
-  }
-
-  walk(items, parentId, depth)
-
-  return flattenedItems
 }
 
 function buildRenderTree(flattenedItems: FlattenedItem[]): TreeRenderNode[] {
   const rootChildren: TreeRenderNode[] = []
   const nodes = new Map<string, TreeRenderNode>()
 
-  for (const item of flattenedItems) {
-    nodes.set(item.id, {...item, children: []})
+  for (const {id, parentId, depth, index, collapsed} of flattenedItems) {
+    nodes.set(id, {id, parentId, depth, index, collapsed, children: []})
   }
 
   for (const item of flattenedItems) {
@@ -141,8 +199,27 @@ function getArrayMemberSchemaType(arraySchemaType: any, typeName?: string) {
   return memberTypes.length === 1 ? memberTypes[0] : undefined
 }
 
+const addableTypesCache = new WeakMap<object, AddableType[]>()
+
+/** The item types that can be added to an array, cached so memoized buttons stay stable */
+function getAddableTypes(arraySchemaType: any): AddableType[] {
+  if (!arraySchemaType || typeof arraySchemaType !== 'object') return []
+
+  let types = addableTypesCache.get(arraySchemaType)
+  if (!types) {
+    types = getArrayMemberSchemaTypes(arraySchemaType).flatMap((memberType) => {
+      const name = getSchemaTypeName(memberType)
+      return name ? [{name, title: memberType.title || name, icon: memberType.icon}] : []
+    })
+    addableTypesCache.set(arraySchemaType, types)
+  }
+  return types
+}
+
 function getChildrenArraySchemaType(objectSchemaType: any) {
-  const childrenField = objectSchemaType?.fields?.find((field: any) => field?.name === 'children')
+  const childrenField = objectSchemaType?.fields?.find(
+    (field: any) => field?.name === CHILDREN_FIELD,
+  )
   const childrenType = childrenField?.type
 
   return Array.isArray(childrenType?.of) ? childrenType : undefined
@@ -162,27 +239,14 @@ function canArrayContainItemType(arraySchemaType: any, itemTypeName?: string) {
   return memberTypes.some((memberType) => getSchemaTypeName(memberType) === itemTypeName)
 }
 
-function createItemForArraySchema(arraySchemaType: any): Item | null {
-  const itemSchemaType = getArrayMemberSchemaType(arraySchemaType)
-  const itemTypeName = getSchemaTypeName(itemSchemaType)
-
-  if (!itemTypeName) return null
-
-  return {
-    _key: randomKey(12),
-    _type: itemTypeName,
-    ...(getChildrenArraySchemaType(itemSchemaType) ? {children: []} : {}),
-  }
-}
-
 function CollapsibleSubtree({
   open,
   children,
 }: {
   open: boolean
-  children(disabled: boolean): React.ReactNode
+  children: (disabled: boolean) => React.ReactNode
 }) {
-  const [, setMounted] = useState(open)
+  const [mounted, setMounted] = useState(open)
   const [expanded, setExpanded] = useState(open)
 
   useEffect(() => {
@@ -190,6 +254,8 @@ function CollapsibleSubtree({
     let unmountTimeout: ReturnType<typeof setTimeout> | undefined
 
     if (open) {
+      // Collapse first, then expand on the next frames so the transition plays (also on mount).
+      // oxlint-disable-next-line react/set-state-in-effect -- drives the CSS transition
       setMounted(true)
       setExpanded(false)
       animationFrames.push(
@@ -229,7 +295,7 @@ function CollapsibleSubtree({
         willChange: 'grid-template-rows, opacity',
       }}
     >
-      <div style={{minHeight: 0, overflow: 'hidden'}}>{children(!open)}</div>
+      <div style={{minHeight: 0, overflow: 'hidden'}}>{mounted ? children(!open) : null}</div>
     </div>
   )
 }
@@ -239,36 +305,107 @@ export function Tree({
   members,
   props,
   indentation = 50,
-  onChange,
+  onPatch,
   onItemOpen,
   maxDepth = 3,
+  readOnly = false,
 }: Props) {
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() =>
     collectDefaultCollapsedKeys(items),
   )
+  // Items expanded to show the focus: the stored `collapsed: true` mustn't collapse them again
+  const [focusExpandedIds, setFocusExpandedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [projectedItems, setProjectedItems] = useState<FlattenedItem[] | null>(null)
-  const [hoveredItemKey, setHoveredItemKey] = useState<string | null>(null)
-  const [activeDragItemId, setActiveDragItemId] = useState<string | null>(null)
+  // The dragged item and its children, for rendering (the refs below are for event handlers)
+  const [dragSource, setDragSource] = useState<{
+    item: FlattenedItem
+    children: FlattenedItem[]
+  } | null>(null)
+  const activeDragItemId = dragSource?.item.id ?? null
   const projectedItemsRef = useRef<FlattenedItem[] | null>(null)
+  // A reference that was just added: its row focuses the reference search, like the Studio's array
+  const [addedReferenceId, setAddedReferenceId] = useState<string | null>(null)
   const manuallyToggledCollapsedKeysRef = useRef<Set<string>>(new Set())
+  const toast = useToast()
+  const canHover = useCanHover()
+  const {t} = useTranslation(sortableTreeLocaleNamespace)
+  const {
+    focusPath,
+    renderAnnotation,
+    renderBlock,
+    renderField,
+    renderInlineBlock,
+    renderInput,
+    renderItem,
+    renderPreview,
+    resolveInitialValue,
+    schemaType,
+  } = props
+  // Sanity's own array options apply to the whole tree
+  const sortable = schemaType.options?.sortable !== false
+  const disabledActions = schemaType.options?.disableActions
+  const addDisabled = disabledActions?.includes('add') ?? false
+  const removeDisabled = disabledActions?.includes('remove') ?? false
+  // dnd-kit's default plugins, with announcements that use item titles and the Studio's locale
+  const dragPlugins = useMemo(
+    () => [
+      ...defaultPreset.plugins.filter((plugin) => plugin !== Accessibility && plugin !== Feedback),
+      // No drag overlay: the dragged row itself is lifted and moves with the pointer
+      configure(Feedback, {
+        dropAnimation: SETTLE_TRANSITION,
+        keyboardTransition: SETTLE_TRANSITION,
+      }),
+      configure(Accessibility, {
+        screenReaderInstructions: {draggable: t('announce.instructions')},
+        announcements: {
+          dragstart: ({operation: {source}}) =>
+            source ? t('announce.drag-start', {title: getRowTitle(source.element)}) : undefined,
+          dragover: ({operation: {source, target}}) =>
+            source && target
+              ? t('announce.drag-over', {
+                  title: getRowTitle(source.element),
+                  target: getRowTitle(target.element),
+                })
+              : undefined,
+          dragend: ({operation: {source}, canceled}) =>
+            source
+              ? t(canceled ? 'announce.drag-cancel' : 'announce.drag-end', {
+                  title: getRowTitle(source.element),
+                })
+              : undefined,
+        },
+      }),
+    ],
+    [t],
+  )
+  const renderCallbacks = useMemo<RenderCallbacks>(
+    () => ({
+      renderAnnotation,
+      renderBlock,
+      renderField,
+      renderInlineBlock,
+      renderInput,
+      renderItem,
+      renderPreview,
+    }),
+    [
+      renderAnnotation,
+      renderBlock,
+      renderField,
+      renderInlineBlock,
+      renderInput,
+      renderItem,
+      renderPreview,
+    ],
+  )
 
   useEffect(() => {
     const defaultCollapsedKeys = collectDefaultCollapsedKeys(items)
     const validKeys = new Set<string>()
 
-    const visitItems = (treeItems: Item[], parentId: string | null = null) => {
-      treeItems.forEach((item, index) => {
-        const id = getTreeItemId(parentId, item._key, index)
-
-        validKeys.add(id)
-
-        if (item.children?.length) {
-          visitItems(item.children, id)
-        }
-      })
-    }
-
-    visitItems(items)
+    walkTree(items, (_item, id) => {
+      validKeys.add(id)
+    })
 
     setCollapsedKeys((currentKeys) => {
       const nextKeys = new Set(currentKeys)
@@ -282,7 +419,11 @@ export function Tree({
       }
 
       for (const key of defaultCollapsedKeys) {
-        if (!manuallyToggledCollapsedKeysRef.current.has(key) && !nextKeys.has(key)) {
+        if (
+          !manuallyToggledCollapsedKeysRef.current.has(key) &&
+          !focusExpandedIds.has(key) &&
+          !nextKeys.has(key)
+        ) {
           nextKeys.add(key)
           changed = true
         }
@@ -296,16 +437,25 @@ export function Tree({
         manuallyToggledCollapsedKeysRef.current.delete(key)
       }
     }
-  }, [items])
+  }, [focusExpandedIds, items])
 
   const baseDragItems = useMemo(() => flattenTree(items, collapsedKeys), [collapsedKeys, items])
   const baseRenderItems = useMemo(
-    () => flattenTreeForRender(items, collapsedKeys),
+    () => flattenTree(items, collapsedKeys, false),
     [collapsedKeys, items],
   )
   const dragItems = projectedItems ?? baseDragItems
   const renderItems = projectedItems ?? baseRenderItems
   const renderTree = useMemo(() => buildRenderTree(renderItems), [renderItems])
+  // The tree's root element: windowing observes its rows, drag feedback animates them
+  const containerRef = useRef<HTMLDivElement>(null)
+  // The focused item and its parents (tree ids), from the Studio's focus path
+  const focusedItemIds = useMemo(() => getFocusItemIds(focusPath), [focusPath])
+  const windowing = useRowWindowing(
+    containerRef,
+    renderItems.length > WINDOWING_THRESHOLD,
+    baseRenderItems.map((item) => item.id),
+  )
   const dragIndexById = useMemo(() => {
     const next = new Map<string, number>()
 
@@ -323,82 +473,98 @@ export function Tree({
     return projectedItems.find((item) => item.id === activeDragItemId)?.parentId ?? null
   }, [activeDragItemId, projectedItems])
 
-  const updateProjectedItems = useCallback((nextItems: FlattenedItem[] | null) => {
-    projectedItemsRef.current = nextItems
-    setProjectedItems(nextItems)
-  }, [])
+  // Set by keyboard moves: moves the dragged row to its new position after it renders
+  const followSourceRef = useRef<(() => void) | null>(null)
+  // Rows slide out of the way of the dragged row
+  const dragFlip = useDragFlip(containerRef)
+
+  // After every render while dragging: slide the rows that moved. dnd-kit calls the drag handlers
+  // in a transition, so the form's own update (from a drop's patches) can render before the
+  // projection does: then note where the rows are again, for the projection's render.
+  useLayoutEffect(() => {
+    keepDraggedRowLifted(containerRef.current)
+    dragFlip.play()
+    if (projectedItemsRef.current !== projectedItems) dragFlip.snapshot()
+  })
+
+  useLayoutEffect(() => {
+    const follow = followSourceRef.current
+    followSourceRef.current = null
+    follow?.()
+  }, [projectedItems])
+
+  const updateProjectedItems = useCallback(
+    (nextItems: FlattenedItem[] | null) => {
+      // While dragging: note where the rows are, to slide them from there once React moves them
+      if (nextItems || projectedItemsRef.current) dragFlip.snapshot()
+      projectedItemsRef.current = nextItems
+      setProjectedItems(nextItems)
+    },
+    [dragFlip],
+  )
 
   const memberById = useMemo(() => {
     const next = new Map<string, any>()
 
-    const visitMember = (
-      member: any,
-      depth = 0,
-      parentProps: any = props,
-      parentId: string | null = null,
-      index = 0,
-    ) => {
+    const visitMember = (member: any, depth = 0, parentId: string | null = null) => {
       if (!member) return
 
-      const id = member.key ? getTreeItemId(parentId, member.key, index) : null
+      const id = member.key ? (parentId ? `${parentId}/${member.key}` : member.key) : null
 
-      if (member.key) {
-        next.set(id!, {...member, parentProps})
+      if (id) {
+        next.set(id, member)
       }
 
       if (depth >= maxDepth) return
 
-      const childrenMenu = member?.item?.members?.find((m: any) => m.name === 'children')
+      const childrenMenu = member?.item?.members?.find(
+        (m: any) => m.kind === 'field' && m.name === CHILDREN_FIELD,
+      )
       const children = childrenMenu?.field?.members
 
       if (!children) return
 
-      children.forEach((child: any, childIndex: number) => {
-        visitMember(child, depth + 1, childrenMenu.field, id, childIndex)
+      children.forEach((child: any) => {
+        visitMember(child, depth + 1, id)
       })
     }
 
-    members?.forEach((member, index) => visitMember(member, 0, props, null, index))
+    members?.forEach((member) => visitMember(member, 0, null))
 
     return next
-  }, [maxDepth, members, props])
+  }, [maxDepth, members])
 
   const treeMeta = useMemo(() => {
     const hasChildren = new Set<string>()
+    // Items with nested data the tree can't show (and won't write to)
+    const hasInvalidChildren = new Set<string>()
     const pathById = new Map<string, Path>()
 
-    const visitItems = (
-      treeItems: Item[],
-      currentPath: Path = [],
-      parentId: string | null = null,
-    ) => {
-      treeItems.forEach((item, index) => {
-        const id = getTreeItemId(parentId, item._key, index)
-        const itemPath: Path = [...currentPath, {_key: item._key}]
+    walkTree(items, (item, id, parentId) => {
+      const parentPath = parentId === null ? null : (pathById.get(parentId) ?? null)
 
-        pathById.set(id, itemPath)
+      pathById.set(id, [...getChildrenPath(parentPath), {_key: item._key}])
 
-        if (item.children?.length) {
-          hasChildren.add(id)
-          visitItems(item.children, [...itemPath, 'children'], id)
-        }
-      })
-    }
+      if (Array.isArray(item.children) && item.children.length > 0) {
+        hasChildren.add(id)
+      }
+      if (hasUnshowableChildren(item.children)) {
+        hasInvalidChildren.add(id)
+      }
+    })
 
-    visitItems(items)
-
-    return {hasChildren, pathById}
+    return {hasChildren, hasInvalidChildren, pathById}
   }, [items])
 
   const getDestinationArraySchemaType = useCallback(
     (parentId: string | null) => {
       if (parentId === null) {
-        return props.schemaType
+        return schemaType
       }
 
       return getChildrenArraySchemaType(memberById.get(parentId)?.item?.schemaType)
     },
-    [memberById, props.schemaType],
+    [memberById, schemaType],
   )
 
   const canMoveItemToParent = useCallback(
@@ -411,24 +577,73 @@ export function Tree({
     [getDestinationArraySchemaType, memberById],
   )
 
-  const canAddItemToParent = useCallback(
-    (parentId: string | null) => {
-      return createItemForArraySchema(getDestinationArraySchemaType(parentId)) !== null
-    },
-    [getDestinationArraySchemaType],
+  // Only items whose schema type has a `children` array can be dropped into: never references
+  const canHaveChildren = useCallback(
+    (item: FlattenedItem) =>
+      getChildrenArraySchemaType(memberById.get(item.id)?.item?.schemaType) !== undefined,
+    [memberById],
   )
 
-  const sanitizeTreeItems = useCallback(
-    (treeItems: Item[]) => {
-      return sanitizeItems(treeItems, props.schemaType)
+  const canAddItemToParent = useCallback(
+    (parentId: string | null) => {
+      if (readOnly || addDisabled) return false
+
+      if (parentId !== null) {
+        const parentItem = memberById.get(parentId)?.item
+        const childrenField = parentItem?.members?.find(
+          (m: {kind?: string; name?: string}) => m.kind === 'field' && m.name === CHILDREN_FIELD,
+        )?.field
+
+        if (parentItem?.readOnly || childrenField?.readOnly) return false
+      }
+
+      return getAddableTypes(getDestinationArraySchemaType(parentId)).length > 0
     },
-    [props.schemaType],
+    [addDisabled, getDestinationArraySchemaType, memberById, readOnly],
   )
 
   const initialDepth = useRef(0)
   const sourceItem = useRef<FlattenedItem | null>(null)
   const sourceChildren = useRef<FlattenedItem[]>([])
   const sourceDescendantDepth = useRef(0)
+
+  // The dragged row moves vertically with the pointer, at the indentation of its projected depth
+  const getDragOffsetX = useCallback(() => {
+    const source = sourceItem.current
+    const projected = source && projectedItemsRef.current?.find(({id}) => id === source.id)
+
+    return projected ? (projected.depth - initialDepth.current) * indentation : null
+  }, [indentation])
+  const getTreeElement = useCallback(() => containerRef.current, [])
+  const dragModifiers = useMemo(
+    // oxlint-disable-next-line react/refs -- dnd-kit calls these during drags, not while rendering
+    () => [snapToDepth(getDragOffsetX), restrictToList(getTreeElement)],
+    [getDragOffsetX, getTreeElement],
+  )
+
+  const handleExpandAll = useCallback(() => {
+    updateProjectedItems(null)
+    for (const id of treeMeta.hasChildren) manuallyToggledCollapsedKeysRef.current.add(id)
+    setCollapsedKeys(new Set())
+  }, [treeMeta, updateProjectedItems])
+
+  const handleCollapseAll = useCallback(() => {
+    updateProjectedItems(null)
+    for (const id of treeMeta.hasChildren) manuallyToggledCollapsedKeysRef.current.add(id)
+    setCollapsedKeys(new Set(treeMeta.hasChildren))
+  }, [treeMeta, updateProjectedItems])
+
+  // When the Studio focuses something inside a collapsed item (e.g. jumping to a validation error),
+  // expand the items around it. Adjusting state while rendering, as React recommends for props.
+  const [previousFocusPath, setPreviousFocusPath] = useState(focusPath)
+  if (focusPath !== previousFocusPath) {
+    setPreviousFocusPath(focusPath)
+    const ancestors = getFocusAncestorIds(focusPath)
+    if (ancestors.some((id) => collapsedKeys.has(id))) {
+      setFocusExpandedIds(new Set([...focusExpandedIds, ...ancestors]))
+      setCollapsedKeys(new Set([...collapsedKeys].filter((id) => !ancestors.includes(id))))
+    }
+  }
 
   const handleCollapse = useCallback(
     (id: string) => {
@@ -450,59 +665,69 @@ export function Tree({
   )
 
   const handleAddItem = useCallback(
-    (parentId: string | null) => {
+    (parentId: string | null, typeName?: string) => {
       updateProjectedItems(null)
 
-      const newItem = createItemForArraySchema(getDestinationArraySchemaType(parentId))
+      if (!canAddItemToParent(parentId)) return
 
-      if (!newItem) return
+      const itemSchemaType = getArrayMemberSchemaType(
+        getDestinationArraySchemaType(parentId),
+        typeName,
+      )
+      const parentPath = parentId === null ? null : treeMeta.pathById.get(parentId)
 
-      if (parentId === null) {
-        // Adding to root level
-        const newItems = [...items, newItem]
-        onChange(sanitizeTreeItems(newItems))
-      } else {
-        // Adding to a parent item
-        const addToParent = (
-          items: Item[],
-          targetParentId: string,
-          currentParentId: string | null = null,
-        ): Item[] => {
-          return items.map((item, index) => {
-            const id = getTreeItemId(currentParentId, item._key, index)
+      if (!itemSchemaType || parentPath === undefined) return
 
-            if (id === targetParentId) {
-              return {
-                ...item,
-                children: [...(Array.isArray(item.children) ? item.children : []), newItem],
-                collapsed: false, // Expand parent when adding child
-              }
-            }
-            if (item.children && Array.isArray(item.children) && item.children.length > 0) {
-              return {
-                ...item,
-                children: addToParent(item.children, targetParentId, id),
-              }
-            }
-            return item
+      const childrenPath = getChildrenPath(parentPath)
+      const key = randomKey(12)
+      const itemPath: Path = [...childrenPath, {_key: key}]
+
+      onPatch(getAppendPatches({_key: key, _type: itemSchemaType.name}, childrenPath))
+      setAddedReferenceId(
+        isReferenceType(itemSchemaType) ? (parentId ? `${parentId}/${key}` : key) : null,
+      )
+
+      if (parentId !== null) {
+        manuallyToggledCollapsedKeysRef.current.add(parentId)
+        setCollapsedKeys((currentKeys) => {
+          if (!currentKeys.has(parentId)) return currentKeys
+
+          const nextKeys = new Set(currentKeys)
+          nextKeys.delete(parentId)
+          return nextKeys
+        })
+      }
+
+      // Like the Studio's own array input: insert right away, then fill in the schema's
+      // initial value. `setIfMissing` keeps anything the user typed in the meantime.
+      const applyInitialValue = async () => {
+        try {
+          const initialValue: unknown = await resolveInitialValue(itemSchemaType, {})
+          const fields = Object.entries(isRecord(initialValue) ? initialValue : {}).filter(
+            ([name, value]) => name !== '_key' && name !== '_type' && value !== undefined,
+          )
+
+          if (fields.length) {
+            onPatch(fields.map(([name, value]) => setIfMissing(value, [...itemPath, name])))
+          }
+        } catch (error) {
+          toast.push({
+            status: 'error',
+            title: t('initial-value-error.title'),
+            description: error instanceof Error ? error.message : String(error),
           })
         }
-
-        const newItems = addToParent(items, parentId)
-        const nextCollapsedKeys = new Set(collapsedKeys)
-
-        manuallyToggledCollapsedKeysRef.current.add(parentId)
-        nextCollapsedKeys.delete(parentId)
-        setCollapsedKeys(nextCollapsedKeys)
-        onChange(sanitizeTreeItems(newItems))
       }
+      void applyInitialValue()
     },
     [
-      collapsedKeys,
+      canAddItemToParent,
       getDestinationArraySchemaType,
-      items,
-      onChange,
-      sanitizeTreeItems,
+      onPatch,
+      resolveInitialValue,
+      t,
+      toast,
+      treeMeta,
       updateProjectedItems,
     ],
   )
@@ -512,31 +737,44 @@ export function Tree({
       if (!onItemOpen) return
 
       const itemPath = treeMeta.pathById.get(id)
-      const firstFieldName = memberById.get(id)?.item?.members?.[0]?.name
 
       if (!itemPath) return
 
-      onItemOpen(firstFieldName ? [...itemPath, firstFieldName] : itemPath)
+      // Focus the first field, as the tree always has (fieldsets and groups aren't fields)
+      const firstField = memberById
+        .get(id)
+        ?.item?.members?.find((m: {kind?: string}) => m.kind === 'field')?.name
+
+      onItemOpen(itemPath, firstField ? [...itemPath, firstField] : undefined)
     },
     [memberById, onItemOpen, treeMeta],
+  )
+
+  const handleItemPatch = useCallback(
+    (id: string, patches: PatchInput) => {
+      const path = treeMeta.pathById.get(id)
+      if (path) onPatch(prefixItemPatches(patches, path))
+    },
+    [onPatch, treeMeta],
   )
 
   const handleRemove = useCallback(
     (id: string) => {
       updateProjectedItems(null)
 
-      const descendants = getDescendants(dragItems, id)
-      const newItems = dragItems.filter((item) => item.id !== id && !descendants.has(item.id))
-      const tree = buildTree(newItems)
-      const remainingIds = new Set(newItems.map((item) => item.id))
-      const nextCollapsedKeys = new Set(
-        [...collapsedKeys].filter((key) => key !== id && remainingIds.has(key)),
-      )
+      const path = treeMeta.pathById.get(id)
 
-      setCollapsedKeys(nextCollapsedKeys)
-      onChange(sanitizeTreeItems(tree))
+      if (!path) return
+
+      setCollapsedKeys((currentKeys) => {
+        const nextKeys = new Set(
+          [...currentKeys].filter((key) => key !== id && !key.startsWith(`${id}/`)),
+        )
+        return nextKeys.size === currentKeys.size ? currentKeys : nextKeys
+      })
+      onPatch(getRemovePatches(path))
     },
-    [collapsedKeys, dragItems, onChange, sanitizeTreeItems, updateProjectedItems],
+    [onPatch, treeMeta, updateProjectedItems],
   )
 
   const restoreSourceChildren = useCallback((activeItems: FlattenedItem[]) => {
@@ -578,15 +816,28 @@ export function Tree({
       const isOptimisticParent = optimisticParentId === node.id && node.children.length > 0
       const sortableIndex = dragIndexById.get(node.id) ?? node.index
       const sortableDisabled = disabled || !dragIndexById.has(node.id)
-      const isDraggingTree = activeDragItemId === node.id && sourceChildren.current.length > 0
+      const isDraggingTree = activeDragItemId === node.id && (dragSource?.children.length ?? 0) > 0
+      // The dragged row and the focused row (and the rows containing them) always stay mounted
+      const isDragPath =
+        activeDragItemId !== null &&
+        (activeDragItemId === node.id || activeDragItemId.startsWith(`${node.id}/`))
+      const isFocusPath = focusedItemIds.includes(node.id)
+
+      if (!windowing.isVisible(node.id) && !isDragPath && !isFocusPath) {
+        return (
+          <li key={`item-${node.id}`} data-tree-id={node.id} style={ROW_STYLE}>
+            <div
+              aria-hidden
+              style={{
+                height: windowing.heightOf(node.id) ?? estimateHeight(node, collapsedKeys),
+              }}
+            />
+          </li>
+        )
+      }
 
       return (
-        <li
-          key={`item-${node.id}`}
-          style={{
-            listStyle: 'none',
-          }}
-        >
+        <li key={`item-${node.id}`} data-tree-id={node.id} style={ROW_STYLE}>
           {member?.kind === 'item' && (
             <TreeItem
               item={{...node, collapsed: isCollapsed}}
@@ -594,36 +845,31 @@ export function Tree({
               index={sortableIndex}
               disabled={sortableDisabled}
               hasChildren={hasChildren}
-              isHovering={hoveredItemKey === node.id}
-              onHoverChange={setHoveredItemKey}
               onCollapse={handleCollapse}
               onItemOpen={onItemOpen ? handleItemOpen : undefined}
-              onRemove={handleRemove}
-            >
-              <ArrayOfObjectsItem
-                member={{
-                  ...member,
-                  item: {
-                    ...member.item,
-                    schemaType: {
-                      ...member.item.schemaType,
-                      components: {
-                        ...member.item.schemaType.components,
-                        item: TreeItemInput,
-                        preview: TreeItemPreview,
-                      },
-                    },
-                  },
-                }}
-                renderAnnotation={props.renderAnnotation}
-                renderBlock={props.renderBlock}
-                renderField={props.renderField}
-                renderInlineBlock={props.renderInlineBlock}
-                renderInput={props.renderInput}
-                renderItem={props.renderItem}
-                renderPreview={props.renderPreview}
-              />
-            </TreeItem>
+              onItemPatch={handleItemPatch}
+              autoFocusSearch={addedReferenceId === node.id}
+              onRemove={removeDisabled ? undefined : handleRemove}
+              sortable={sortable}
+              canHover={canHover}
+              callbacks={renderCallbacks}
+              // Items without a visible nested "Add item" button (no children yet, or collapsed)
+              onAddChild={
+                (!hasRealChildren || isCollapsed) &&
+                node.depth < maxDepth - 1 &&
+                canAddItemToParent(node.id)
+                  ? handleAddItem
+                  : undefined
+              }
+              childTypes={getAddableTypes(getChildrenArraySchemaType(member.item.schemaType))}
+            />
+          )}
+          {treeMeta.hasInvalidChildren.has(node.id) && !isDraggingTree && (
+            <Box style={{marginTop: '0.25rem', marginLeft: indentation}}>
+              <Card tone="caution" padding={2} radius={2} border>
+                <Text size={1}>{t('invalid-children')}</Text>
+              </Card>
+            </Box>
           )}
           {hasChildren && !isDraggingTree && (
             <CollapsibleSubtree open={!isCollapsed || isOptimisticParent}>
@@ -645,6 +891,7 @@ export function Tree({
                         addItem={handleAddItem}
                         disabled={disabled || subtreeDisabled}
                         parentId={node.id}
+                        types={getAddableTypes(getDestinationArraySchemaType(node.id))}
                       />
                     </li>
                   )}
@@ -658,25 +905,36 @@ export function Tree({
     [
       activeDragItemId,
       canAddItemToParent,
+      dragSource,
+      getDestinationArraySchemaType,
       collapsedKeys,
       dragIndexById,
       handleAddItem,
       handleCollapse,
       handleItemOpen,
+      handleItemPatch,
       handleRemove,
-      hoveredItemKey,
+      addedReferenceId,
       indentation,
       maxDepth,
       memberById,
       onItemOpen,
       optimisticParentId,
-      props,
+      removeDisabled,
+      renderCallbacks,
+      canHover,
+      sortable,
+      t,
       treeMeta,
+      focusedItemIds,
+      windowing,
     ],
   )
 
   return (
     <DragDropProvider
+      plugins={dragPlugins}
+      modifiers={dragModifiers}
       onDragStart={(event) => {
         const {source} = event.operation
 
@@ -689,39 +947,34 @@ export function Tree({
 
         const {depth} = draggedItem
 
+        // Visible descendants move with the item: take them out of the list while dragging
+        const descendants = getDescendants(activeItems, source.id)
+        const children = activeItems.filter((item) => descendants.has(item.id))
+
         // Store the source item's initial depth for later use
         initialDepth.current = depth
         sourceItem.current = draggedItem
-        setActiveDragItemId(draggedItem.id)
-        sourceChildren.current = []
-        sourceDescendantDepth.current = 0
-
-        // Get all visible descendants of the source item
-        const descendants = getDescendants(activeItems, source.id)
-
-        updateProjectedItems(
-          activeItems.filter((item) => {
-            if (descendants.has(item.id)) {
-              sourceChildren.current = [...sourceChildren.current, item]
-              sourceDescendantDepth.current = Math.max(
-                sourceDescendantDepth.current,
-                item.depth - draggedItem.depth,
-              )
-              return false
-            }
-
-            return true
-          }),
+        sourceChildren.current = children
+        sourceDescendantDepth.current = Math.max(
+          0,
+          ...children.map((item) => item.depth - draggedItem.depth),
         )
+        setDragSource({item: draggedItem, children})
+
+        updateProjectedItems(activeItems.filter((item) => !descendants.has(item.id)))
       }}
       onDragOver={(event, manager) => {
         const {source, target} = event.operation
 
         event.preventDefault()
 
+        // Keyboard drags move by position in the tree (onDragMove), not by what they're over
+        if (isKeyboardEvent(event.operation.activatorEvent)) return
+
         if (source && target && source.id !== target.id) {
           const activeItems = projectedItemsRef.current ?? dragItems
-          const offsetLeft = manager.dragOperation.transform.x
+          // The pointer's own offset: the dragged row's (`transform`) snaps to the projected depth
+          const offsetLeft = manager.dragOperation.position.delta.x
           const dragDepth = getDragDepth(offsetLeft, indentation)
           const projectedDepth = initialDepth.current + dragDepth
 
@@ -730,6 +983,7 @@ export function Tree({
             target.id,
             projectedDepth,
             maxDepth - sourceDescendantDepth.current,
+            canHaveChildren,
           )
 
           const sourceIndex = activeItems.findIndex((item) => item.id === String(source.id))
@@ -756,9 +1010,60 @@ export function Tree({
 
         const {source, target} = event.operation
 
+        // Up/down arrow keys: move one position in the tree, keeping the depth where possible
+        if (
+          source &&
+          isKeyboardEvent(event.operation.activatorEvent) &&
+          event.by &&
+          event.by.y !== 0 &&
+          event.by.x === 0
+        ) {
+          event.preventDefault()
+
+          const activeItems = projectedItemsRef.current ?? dragItems
+          const index = activeItems.findIndex((item) => item.id === String(source.id))
+          const nextIndex = index + Math.sign(event.by.y)
+          const movedItem = activeItems[index]
+
+          if (!movedItem || nextIndex < 0 || nextIndex >= activeItems.length) return
+
+          const nextItems = activeItems.filter((item) => item !== movedItem)
+          nextItems.splice(nextIndex, 0, movedItem)
+
+          const {depth, parentId} = getProjection(
+            nextItems,
+            movedItem.id,
+            movedItem.depth,
+            maxDepth - sourceDescendantDepth.current,
+            canHaveChildren,
+          )
+
+          if (!canMoveItemToParent(movedItem, parentId)) return
+
+          nextItems[nextIndex] = {...movedItem, depth, parentId}
+
+          // Move the dragged row to where it will be dropped, once React has placed it there (the
+          // row itself is lifted out of the list, so measure the placeholder left in its place)
+          const before = getDropPlaceholder(source.element)?.getBoundingClientRect()
+          followSourceRef.current = () => {
+            const after = getDropPlaceholder(source.element)?.getBoundingClientRect()
+
+            if (before && after) {
+              manager.actions.move({
+                // Horizontally, one indentation per level, as with the left/right arrow keys
+                by: {x: indentation * (depth - movedItem.depth), y: after.top - before.top},
+                propagate: false,
+              })
+            }
+          }
+          updateProjectedItems(nextItems)
+
+          return
+        }
+
         if (source && target) {
           const keyboard = isKeyboardEvent(event.operation.activatorEvent)
-          const currentDepth = source.data!.depth ?? 0
+          const currentDepth = source.data.depth ?? 0
           let keyboardDepth
 
           if (keyboard) {
@@ -771,7 +1076,8 @@ export function Tree({
             }
           }
 
-          const offsetLeft = manager.dragOperation.transform.x
+          // The pointer's own offset: the dragged row's (`transform`) snaps to the projected depth
+          const offsetLeft = manager.dragOperation.position.delta.x
           const dragDepth = getDragDepth(offsetLeft, indentation)
 
           const projectedDepth = keyboardDepth ?? initialDepth.current + dragDepth
@@ -782,6 +1088,7 @@ export function Tree({
             source.id,
             projectedDepth,
             maxDepth - sourceDescendantDepth.current,
+            canHaveChildren,
           )
 
           if (keyboard) {
@@ -795,25 +1102,23 @@ export function Tree({
             }
           }
 
-          if (source.data!.depth !== depth || source.data!.parentId !== parentId) {
+          if (source.data.depth !== depth || source.data.parentId !== parentId) {
             const movedItem = activeItems.find((item) => item.id === String(source.id))
 
             if (!movedItem || !canMoveItemToParent(movedItem, parentId)) {
               return
             }
 
-            updateProjectedItems(
-              activeItems.map((item) =>
-                item.id === String(source.id) ? {...item, depth, parentId} : item,
-              ),
-            )
+            const nextItems = [...activeItems]
+            nextItems[nextItems.indexOf(movedItem)] = {...movedItem, depth, parentId}
+            updateProjectedItems(nextItems)
           }
         }
       }}
       onDragEnd={(event) => {
         if (event.canceled) {
           sourceItem.current = null
-          setActiveDragItemId(null)
+          setDragSource(null)
           sourceChildren.current = []
           sourceDescendantDepth.current = 0
           updateProjectedItems(null)
@@ -826,7 +1131,7 @@ export function Tree({
 
         if (!restoredItems.every((item) => canMoveItemToParent(item, item.parentId))) {
           sourceItem.current = null
-          setActiveDragItemId(null)
+          setDragSource(null)
           sourceChildren.current = []
           sourceDescendantDepth.current = 0
           updateProjectedItems(null)
@@ -837,7 +1142,22 @@ export function Tree({
         const movedItem = sourceItem.current
           ? restoredItems.find((item) => item.id === sourceItem.current?.id)
           : undefined
-        const updatedTree = buildTree(restoredItems)
+        const fromPath = movedItem ? treeMeta.pathById.get(movedItem.id) : undefined
+        const parentPath =
+          movedItem?.parentId == null ? null : treeMeta.pathById.get(movedItem.parentId)
+        let movePatches: FormPatch[] = []
+
+        if (movedItem && fromPath && parentPath !== undefined) {
+          // Only the dragged item changes position: its children move with it
+          const siblings = restoredItems.filter((item) => item.parentId === movedItem.parentId)
+          const position = siblings.indexOf(movedItem)
+
+          movePatches = getMovePatches(items, fromPath, {
+            parentPath,
+            afterKey: siblings[position - 1]?._key,
+            beforeKey: siblings[position + 1]?._key,
+          })
+        }
 
         if (movedItem?.parentId) {
           manuallyToggledCollapsedKeysRef.current.add(movedItem.parentId)
@@ -854,130 +1174,92 @@ export function Tree({
           })
         }
 
-        onChange(sanitizeTreeItems(updatedTree))
+        if (movePatches.length) onPatch(movePatches)
         sourceItem.current = null
-        setActiveDragItemId(null)
+        setDragSource(null)
         sourceChildren.current = []
         sourceDescendantDepth.current = 0
         updateProjectedItems(null)
       }}
     >
-      <Card border padding={1} radius={2}>
+      <Card ref={containerRef} border padding={1} radius={2}>
         <Grid gap={1} as="ul" style={{listStyle: 'none', margin: 0, padding: 0}}>
           {renderTree.length ? (
             renderTree.map((node) => renderTreeNode(node))
           ) : (
             <Box padding={2} flex={1}>
               <Text size={1} muted>
-                No items
+                {t('no-items')}
               </Text>
             </Box>
           )}
 
-          <li style={{listStyle: 'none'}}>
-            <NewTreeItem addItem={handleAddItem} disabled={!canAddItemToParent(null)} />
-          </li>
+          {treeMeta.hasChildren.size > 0 ? (
+            // With nested items: "Expand all" / "Collapse all" next to "Add item"
+            <li style={{listStyle: 'none'}}>
+              <Flex gap={1}>
+                {!addDisabled && (
+                  <Box flex={1}>
+                    <NewTreeItem
+                      addItem={handleAddItem}
+                      disabled={!canAddItemToParent(null)}
+                      types={getAddableTypes(schemaType)}
+                    />
+                  </Box>
+                )}
+                <Tooltip
+                  content={
+                    <Text muted size={1}>
+                      {t('expand-all')}
+                    </Text>
+                  }
+                  animate
+                  placement="top"
+                  portal
+                >
+                  <Button
+                    aria-label={t('expand-all')}
+                    disabled={collapsedKeys.size === 0}
+                    icon={DoubleChevronDownIcon}
+                    mode="ghost"
+                    padding={2}
+                    onClick={handleExpandAll}
+                  />
+                </Tooltip>
+                <Tooltip
+                  content={
+                    <Text muted size={1}>
+                      {t('collapse-all')}
+                    </Text>
+                  }
+                  animate
+                  placement="top"
+                  portal
+                >
+                  <Button
+                    aria-label={t('collapse-all')}
+                    disabled={[...treeMeta.hasChildren].every((id) => collapsedKeys.has(id))}
+                    icon={DoubleChevronUpIcon}
+                    mode="ghost"
+                    padding={2}
+                    onClick={handleCollapseAll}
+                  />
+                </Tooltip>
+              </Flex>
+            </li>
+          ) : (
+            !addDisabled && (
+              <li style={{listStyle: 'none'}}>
+                <NewTreeItem
+                  addItem={handleAddItem}
+                  disabled={!canAddItemToParent(null)}
+                  types={getAddableTypes(schemaType)}
+                />
+              </li>
+            )
+          )}
         </Grid>
       </Card>
-      <DragOverlay style={{width: '100%'}}>
-        {(overlayProps) => {
-          const item =
-            sourceItem.current ?? dragItems.find(({id}) => id === String(overlayProps.id))
-          const member = item ? memberById.get(item.id) : undefined
-
-          return (
-            <TreeItemOverlay
-              descendants={sourceChildren.current}
-              hasChildren={item ? treeMeta.hasChildren.has(item.id) : false}
-              item={item}
-              preview={
-                member?.kind === 'item' ? (
-                  <ArrayOfObjectsItem
-                    member={{
-                      ...member,
-                      item: {
-                        ...member.item,
-                        schemaType: {
-                          ...member.item.schemaType,
-                          components: {
-                            ...member.item.schemaType.components,
-                            item: TreeItemInput,
-                            preview: TreeItemPreview,
-                          },
-                        },
-                      },
-                    }}
-                    renderAnnotation={props.renderAnnotation}
-                    renderBlock={props.renderBlock}
-                    renderField={props.renderField}
-                    renderInlineBlock={props.renderInlineBlock}
-                    renderInput={props.renderInput}
-                    renderItem={props.renderItem}
-                    renderPreview={props.renderPreview}
-                  />
-                ) : null
-              }
-            />
-          )
-        }}
-      </DragOverlay>
     </DragDropProvider>
-  )
-}
-
-function sanitizeItems(items: Item[], arraySchemaType?: any): Item[] {
-  return items.map((item) => {
-    const sanitizedItem: Item & Partial<FlattenedItem> = {
-      ...item,
-    }
-    const itemSchemaType = getArrayMemberSchemaType(
-      arraySchemaType,
-      typeof item._type === 'string' ? item._type : undefined,
-    )
-    const childrenArraySchemaType = getChildrenArraySchemaType(itemSchemaType)
-    const children = Array.isArray(item.children) ? item.children : []
-
-    delete sanitizedItem?.collapsed
-    delete sanitizedItem?.id
-    delete sanitizedItem?.parentId
-    delete sanitizedItem?.depth
-    delete sanitizedItem?.index
-
-    if (childrenArraySchemaType && children.length > 0) {
-      sanitizedItem.children = sanitizeItems(children, childrenArraySchemaType)
-    } else {
-      delete sanitizedItem.children
-    }
-
-    return sanitizedItem
-  })
-}
-
-function TreeItemInput(props: any) {
-  return props.inputProps.renderPreview(props.inputProps)
-}
-
-function TreeItemPreview(
-  props: ObjectInputProps & {
-    title?: React.ReactNode
-    media?: React.ReactNode
-    icon?: React.ComponentType
-  },
-) {
-  const value = props.value as Item | undefined
-  const childCount = Array.isArray(value?.children) ? value.children.length : 0
-
-  if (childCount > 0) {
-    return (
-      <SanityDefaultPreview
-        title={props.title || 'Untitled'}
-        media={props.media}
-        subtitle={`${childCount} item${childCount === 1 ? '' : 's'}`}
-      />
-    )
-  }
-
-  return (
-    <SanityDefaultPreview layout="compact" title={props.title || 'Untitled'} media={props.media} />
   )
 }
