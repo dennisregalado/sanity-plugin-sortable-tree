@@ -35,10 +35,44 @@ interface RestrictToListOptions {
 /**
  * The dragged row stays within the tree vertically, like the Studio's array items
  * (sanity/src/core/form/inputs/arrays/common/list.tsx, `restrictToParentElementWithMargins`)
+ *
+ * The tree's bounds are measured when a drag starts and kept up to date as the tree resizes or
+ * scrolls (like dnd-kit's `RestrictToElement`), instead of on every pointer move: reading them while
+ * dnd-kit computes the dropped row's final position would force the browser to lay out the
+ * just-changed tree.
  */
 class RestrictToList extends Modifier<any, RestrictToListOptions> {
+  private bounds: {top: number; bottom: number} | null = null
+
+  constructor(manager: Modifier['manager'], options?: RestrictToListOptions) {
+    super(manager, options)
+
+    this.registerEffect(() => {
+      const element = this.manager.dragOperation.status.initialized
+        ? this.options?.getElement()
+        : undefined
+      if (!element) return undefined
+
+      const measure = () => {
+        const {top, bottom} = element.getBoundingClientRect()
+        this.bounds = {top, bottom}
+      }
+      measure()
+
+      const resizeObserver = new ResizeObserver(measure)
+      resizeObserver.observe(element)
+      document.addEventListener('scroll', measure, {capture: true, passive: true})
+
+      return () => {
+        resizeObserver.disconnect()
+        document.removeEventListener('scroll', measure, {capture: true})
+        this.bounds = null
+      }
+    })
+  }
+
   apply({shape, transform}: Operation): Coordinates {
-    const list = this.options?.getElement()?.getBoundingClientRect()
+    const list = this.bounds
     const row = shape?.initial.boundingRectangle
 
     if (!list || !row) return transform
