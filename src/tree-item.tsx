@@ -9,20 +9,23 @@ import {TrashIcon} from '@sanity/icons/Trash'
 import {FlattenedItem} from './types'
 import {Box, Button, Card, Flex, Text} from '@sanity/ui'
 import {Tooltip} from '@sanity/ui/tooltip'
-import {memo, useMemo} from 'react'
+import {memo, useMemo, useState} from 'react'
+import {type ArrayOfObjectsItemMember, useTranslation} from 'sanity'
+
+import {sortableTreeLocaleNamespace} from './i18n'
+import {MemberPreview, type RenderCallbacks} from './member-preview'
 
 export interface Props {
   item: FlattenedItem
-  member?: any
+  member: ArrayOfObjectsItemMember
+  /** Render callbacks for the item's preview */
+  callbacks: RenderCallbacks
   index: number
   disabled?: boolean
   onRemove?(id: string): void
   onCollapse?(id: string): void
   hasChildren?: boolean
   onItemOpen?(id: string): void
-  isHovering?: boolean
-  onHoverChange?(id: string | null): void
-  children?: React.ReactNode
 }
 
 const config = {
@@ -44,14 +47,15 @@ function TreeItemComponent({
   index,
   disabled = false,
   hasChildren,
-  isHovering = false,
   onRemove,
   onCollapse,
   onItemOpen,
-  onHoverChange,
-  children,
+  callbacks,
 }: Props) {
   const {id, collapsed, depth, parentId} = item
+  const {t} = useTranslation(sortableTreeLocaleNamespace)
+  // Hover is local to the row, so moving the mouse doesn't re-render the whole tree
+  const [isHovering, setHovering] = useState(false)
   const readOnly = useMemo(() => member?.item?.readOnly, [member])
   const {ref, handleRef, isDragSource, isDragging} = useSortable({
     ...config,
@@ -90,14 +94,14 @@ function TreeItemComponent({
           } as React.CSSProperties
         }
         shadow={!isHovering && isDragging ? 5 : 0}
-        onMouseEnter={() => onHoverChange?.(id)}
-        onMouseLeave={() => onHoverChange?.(null)}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
       >
         <Flex gap={1} style={{width: '100%'}} align="center">
           <Tooltip
             content={
               <Text muted size={1}>
-                Drag to reorder
+                {t('drag-to-reorder')}
               </Text>
             }
             animate
@@ -106,6 +110,7 @@ function TreeItemComponent({
             portal
           >
             <Button
+              aria-label={t('drag-to-reorder')}
               disabled={isDisabled}
               ref={handleRef}
               paddingX={2}
@@ -118,7 +123,7 @@ function TreeItemComponent({
             <Tooltip
               content={
                 <Text muted size={1}>
-                  {collapsed ? 'Expand' : 'Collapse'}
+                  {collapsed ? t('expand') : t('collapse')}
                 </Text>
               }
               animate
@@ -127,6 +132,8 @@ function TreeItemComponent({
               portal
             >
               <Button
+                aria-expanded={!collapsed}
+                aria-label={collapsed ? t('expand') : t('collapse')}
                 disabled={disabled}
                 mode="bleed"
                 paddingX={2}
@@ -145,29 +152,16 @@ function TreeItemComponent({
             onClick={() => onItemOpen?.(id)}
           >
             <Flex align="center" justify="space-between" style={{width: '100%'}}>
-              <Box style={{marginLeft: -8}}>{children}</Box>
+              <Box style={{marginLeft: -8}}>
+                <MemberPreview member={member} callbacks={callbacks} />
+              </Box>
             </Flex>
           </Button>
           {isHovering && !isDisabled && (
             <Tooltip
               content={
                 <Text muted size={1}>
-                  Edit
-                </Text>
-              }
-              animate
-              fallbackPlacements={['right', 'left']}
-              placement="top"
-              portal
-            >
-              <Button onClick={() => onItemOpen?.(id)} icon={EditIcon} mode="bleed" padding={2} />
-            </Tooltip>
-          )}
-          {onRemove && isHovering && !isDisabled && (
-            <Tooltip
-              content={
-                <Text muted size={1}>
-                  Remove
+                  {t('edit')}
                 </Text>
               }
               animate
@@ -176,6 +170,28 @@ function TreeItemComponent({
               portal
             >
               <Button
+                aria-label={t('edit')}
+                onClick={() => onItemOpen?.(id)}
+                icon={EditIcon}
+                mode="bleed"
+                padding={2}
+              />
+            </Tooltip>
+          )}
+          {onRemove && isHovering && !isDisabled && (
+            <Tooltip
+              content={
+                <Text muted size={1}>
+                  {t('remove')}
+                </Text>
+              }
+              animate
+              fallbackPlacements={['right', 'left']}
+              placement="top"
+              portal
+            >
+              <Button
+                aria-label={t('remove')}
                 mode="bleed"
                 padding={2}
                 icon={TrashIcon}
@@ -200,10 +216,9 @@ export const TreeItem = memo(TreeItemComponent, (previous, next) => {
     previous.index === next.index &&
     previous.disabled === next.disabled &&
     previous.hasChildren === next.hasChildren &&
-    previous.isHovering === next.isHovering &&
     previous.onRemove === next.onRemove &&
     previous.onCollapse === next.onCollapse &&
     previous.onItemOpen === next.onItemOpen &&
-    previous.onHoverChange === next.onHoverChange
+    previous.callbacks === next.callbacks
   )
 })

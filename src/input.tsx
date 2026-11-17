@@ -16,7 +16,7 @@ const EMPTY: TreeItemValue[] = []
 export function SortableTreeInput<Item extends ObjectItem>(
   props: ArrayOfObjectsInputProps<Item>,
 ): React.JSX.Element {
-  const {members, onChange, onItemOpen, path, schemaType} = props
+  const {members, onChange, onItemOpen, onPathFocus, path, schemaType} = props
 
   const maxDepth = schemaType.options?.maxDepth ?? 3
 
@@ -24,10 +24,13 @@ export function SortableTreeInput<Item extends ObjectItem>(
 
   const handlePatch = useCallback((patches: FormPatch[]) => onChange(patches), [onChange])
 
-  // `onItemOpen` takes an absolute path; the tree works with paths relative to this array
+  // `onItemOpen` takes an absolute path, `onPathFocus` a relative one (like the tree's paths)
   const handleItemOpen = useCallback(
-    (itemPath: Path) => onItemOpen([...path, ...itemPath]),
-    [onItemOpen, path],
+    (itemPath: Path, focusPath?: Path) => {
+      onItemOpen([...path, ...itemPath])
+      if (focusPath) onPathFocus(focusPath)
+    },
+    [onItemOpen, onPathFocus, path],
   )
 
   return (

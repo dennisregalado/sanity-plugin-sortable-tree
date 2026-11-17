@@ -1,8 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {configure} from '@dnd-kit/abstract'
+import {Accessibility, defaultPreset} from '@dnd-kit/dom'
 import {DragDropProvider, DragOverlay} from '@dnd-kit/react'
 import {isKeyboardEvent} from '@dnd-kit/dom/utilities'
 import {randomKey} from '@sanity/util/content'
 import {useToast} from '@sanity/ui/toast'
+import {sortableTreeLocaleNamespace} from './i18n'
 import {FlattenedItem, type Item} from './types'
 import {flattenTree, getProjection, getDragDepth, getDescendants, walkTree} from './utils'
 import {
@@ -12,19 +15,18 @@ import {
   getMovePatches,
   getRemovePatches,
 } from './patches'
+import {MemberPreview, type RenderCallbacks} from './member-preview'
 import {TreeItem} from './tree-item'
 import {TreeItemOverlay} from './tree-overlay'
 import {NewTreeItem} from './new-tree-item'
 import {Box, Card, Grid, Text} from '@sanity/ui'
 import {
-  ArrayOfObjectsItem,
-  ArrayOfObjectsInputProps,
-  ArrayOfObjectsMember,
+  type ArrayOfObjectsInputProps,
+  type ArrayOfObjectsMember,
   type FormPatch,
-  ObjectInputProps,
   type Path,
-  SanityDefaultPreview,
   setIfMissing,
+  useTranslation,
 } from 'sanity'
 
 interface Props {
@@ -32,8 +34,11 @@ interface Props {
   indentation?: number
   /** Called with patches relative to the root array */
   onPatch(patches: FormPatch[]): void
-  /** Called with the path of an item, relative to the root array */
-  onItemOpen?(path: Path): void
+  /**
+   * Called with the path of an item to open, and the path of its first field to focus (both
+   * relative to the root array)
+   */
+  onItemOpen?(path: Path, focusPath?: Path): void
   members?: ArrayOfObjectsMember[]
   maxDepth?: number
   /** When true, no items can be added, moved or removed */
@@ -46,6 +51,11 @@ interface TreeRenderNode extends Omit<FlattenedItem, 'children'> {
 }
 
 const COLLAPSE_DURATION_MS = 250
+
+/** The visible title of a draggable row, for screen reader announcements */
+function getRowTitle(element: Element | undefined): string {
+  return element?.textContent?.trim() || ''
+}
 
 function collectDefaultCollapsedKeys(items: Item[]) {
   const collapsedKeys = new Set<string>()
@@ -131,7 +141,7 @@ function CollapsibleSubtree({
   open: boolean
   children(disabled: boolean): React.ReactNode
 }) {
-  const [, setMounted] = useState(open)
+  const [mounted, setMounted] = useState(open)
   const [expanded, setExpanded] = useState(open)
 
   useEffect(() => {
@@ -178,7 +188,7 @@ function CollapsibleSubtree({
         willChange: 'grid-template-rows, opacity',
       }}
     >
-      <div style={{minHeight: 0, overflow: 'hidden'}}>{children(!open)}</div>
+      <div style={{minHeight: 0, overflow: 'hidden'}}>{mounted ? children(!open) : null}</div>
     </div>
   )
 }
@@ -197,11 +207,69 @@ export function Tree({
     collectDefaultCollapsedKeys(items),
   )
   const [projectedItems, setProjectedItems] = useState<FlattenedItem[] | null>(null)
-  const [hoveredItemKey, setHoveredItemKey] = useState<string | null>(null)
   const [activeDragItemId, setActiveDragItemId] = useState<string | null>(null)
   const projectedItemsRef = useRef<FlattenedItem[] | null>(null)
   const manuallyToggledCollapsedKeysRef = useRef<Set<string>>(new Set())
   const toast = useToast()
+  const {t} = useTranslation(sortableTreeLocaleNamespace)
+  const {
+    renderAnnotation,
+    renderBlock,
+    renderField,
+    renderInlineBlock,
+    renderInput,
+    renderItem,
+    renderPreview,
+    resolveInitialValue,
+    schemaType,
+  } = props
+  // dnd-kit's default plugins, with announcements that use item titles and the Studio's locale
+  const dragPlugins = useMemo(
+    () => [
+      ...defaultPreset.plugins.filter((plugin) => plugin !== Accessibility),
+      configure(Accessibility, {
+        screenReaderInstructions: {draggable: t('announce.instructions')},
+        announcements: {
+          dragstart: ({operation: {source}}) =>
+            source ? t('announce.drag-start', {title: getRowTitle(source.element)}) : undefined,
+          dragover: ({operation: {source, target}}) =>
+            source && target
+              ? t('announce.drag-over', {
+                  title: getRowTitle(source.element),
+                  target: getRowTitle(target.element),
+                })
+              : undefined,
+          dragend: ({operation: {source}, canceled}) =>
+            source
+              ? t(canceled ? 'announce.drag-cancel' : 'announce.drag-end', {
+                  title: getRowTitle(source.element),
+                })
+              : undefined,
+        },
+      }),
+    ],
+    [t],
+  )
+  const renderCallbacks = useMemo<RenderCallbacks>(
+    () => ({
+      renderAnnotation,
+      renderBlock,
+      renderField,
+      renderInlineBlock,
+      renderInput,
+      renderItem,
+      renderPreview,
+    }),
+    [
+      renderAnnotation,
+      renderBlock,
+      renderField,
+      renderInlineBlock,
+      renderInput,
+      renderItem,
+      renderPreview,
+    ],
+  )
 
   useEffect(() => {
     const defaultCollapsedKeys = collectDefaultCollapsedKeys(items)
@@ -272,18 +340,13 @@ export function Tree({
   const memberById = useMemo(() => {
     const next = new Map<string, any>()
 
-    const visitMember = (
-      member: any,
-      depth = 0,
-      parentProps: any = props,
-      parentId: string | null = null,
-    ) => {
+    const visitMember = (member: any, depth = 0, parentId: string | null = null) => {
       if (!member) return
 
       const id = member.key ? (parentId ? `${parentId}/${member.key}` : member.key) : null
 
       if (member.key) {
-        next.set(id!, {...member, parentProps})
+        next.set(id!, member)
       }
 
       if (depth >= maxDepth) return
@@ -296,14 +359,14 @@ export function Tree({
       if (!children) return
 
       children.forEach((child: any) => {
-        visitMember(child, depth + 1, childrenMenu.field, id)
+        visitMember(child, depth + 1, id)
       })
     }
 
-    members?.forEach((member) => visitMember(member, 0, props, null))
+    members?.forEach((member) => visitMember(member, 0, null))
 
     return next
-  }, [maxDepth, members, props])
+  }, [maxDepth, members])
 
   const treeMeta = useMemo(() => {
     const hasChildren = new Set<string>()
@@ -325,12 +388,12 @@ export function Tree({
   const getDestinationArraySchemaType = useCallback(
     (parentId: string | null) => {
       if (parentId === null) {
-        return props.schemaType
+        return schemaType
       }
 
       return getChildrenArraySchemaType(memberById.get(parentId)?.item?.schemaType)
     },
-    [memberById, props.schemaType],
+    [memberById, schemaType],
   )
 
   const canMoveItemToParent = useCallback(
@@ -415,8 +478,7 @@ export function Tree({
 
       // Like the Studio's own array input: insert right away, then fill in the schema's
       // initial value. `setIfMissing` keeps anything the user typed in the meantime.
-      props
-        .resolveInitialValue(itemSchemaType, {})
+      resolveInitialValue(itemSchemaType, {})
         .then((initialValue) => {
           const fields = Object.entries((initialValue ?? {}) as Record<string, unknown>).filter(
             ([name, value]) => name !== '_key' && name !== '_type' && value !== undefined,
@@ -429,7 +491,7 @@ export function Tree({
         .catch((error: unknown) => {
           toast.push({
             status: 'error',
-            title: 'Could not resolve initial value',
+            title: t('initial-value-error.title'),
             description: error instanceof Error ? error.message : String(error),
           })
         })
@@ -438,7 +500,8 @@ export function Tree({
       canAddItemToParent,
       getDestinationArraySchemaType,
       onPatch,
-      props,
+      resolveInitialValue,
+      t,
       toast,
       treeMeta,
       updateProjectedItems,
@@ -453,9 +516,14 @@ export function Tree({
 
       if (!itemPath) return
 
-      onItemOpen(itemPath)
+      // Focus the first field, as the tree always has (fieldsets and groups aren't fields)
+      const firstField = memberById
+        .get(id)
+        ?.item?.members?.find((m: {kind?: string}) => m.kind === 'field')?.name
+
+      onItemOpen(itemPath, firstField ? [...itemPath, firstField] : undefined)
     },
-    [onItemOpen, treeMeta],
+    [memberById, onItemOpen, treeMeta],
   )
 
   const handleRemove = useCallback(
@@ -532,36 +600,11 @@ export function Tree({
               index={sortableIndex}
               disabled={sortableDisabled}
               hasChildren={hasChildren}
-              isHovering={hoveredItemKey === node.id}
-              onHoverChange={setHoveredItemKey}
               onCollapse={handleCollapse}
               onItemOpen={onItemOpen ? handleItemOpen : undefined}
               onRemove={handleRemove}
-            >
-              <ArrayOfObjectsItem
-                member={{
-                  ...member,
-                  item: {
-                    ...member.item,
-                    schemaType: {
-                      ...member.item.schemaType,
-                      components: {
-                        ...member.item.schemaType.components,
-                        item: TreeItemInput,
-                        preview: TreeItemPreview,
-                      },
-                    },
-                  },
-                }}
-                renderAnnotation={props.renderAnnotation}
-                renderBlock={props.renderBlock}
-                renderField={props.renderField}
-                renderInlineBlock={props.renderInlineBlock}
-                renderInput={props.renderInput}
-                renderItem={props.renderItem}
-                renderPreview={props.renderPreview}
-              />
-            </TreeItem>
+              callbacks={renderCallbacks}
+            />
           )}
           {hasChildren && !isDraggingTree && (
             <CollapsibleSubtree open={!isCollapsed || isOptimisticParent}>
@@ -602,19 +645,19 @@ export function Tree({
       handleCollapse,
       handleItemOpen,
       handleRemove,
-      hoveredItemKey,
       indentation,
       maxDepth,
       memberById,
       onItemOpen,
       optimisticParentId,
-      props,
+      renderCallbacks,
       treeMeta,
     ],
   )
 
   return (
     <DragDropProvider
+      plugins={dragPlugins}
       onDragStart={(event) => {
         const {source} = event.operation
 
@@ -822,7 +865,7 @@ export function Tree({
           ) : (
             <Box padding={2} flex={1}>
               <Text size={1} muted>
-                No items
+                {t('no-items')}
               </Text>
             </Box>
           )}
@@ -845,29 +888,7 @@ export function Tree({
               item={item}
               preview={
                 member?.kind === 'item' ? (
-                  <ArrayOfObjectsItem
-                    member={{
-                      ...member,
-                      item: {
-                        ...member.item,
-                        schemaType: {
-                          ...member.item.schemaType,
-                          components: {
-                            ...member.item.schemaType.components,
-                            item: TreeItemInput,
-                            preview: TreeItemPreview,
-                          },
-                        },
-                      },
-                    }}
-                    renderAnnotation={props.renderAnnotation}
-                    renderBlock={props.renderBlock}
-                    renderField={props.renderField}
-                    renderInlineBlock={props.renderInlineBlock}
-                    renderInput={props.renderInput}
-                    renderItem={props.renderItem}
-                    renderPreview={props.renderPreview}
-                  />
+                  <MemberPreview member={member} callbacks={renderCallbacks} />
                 ) : null
               }
             />
@@ -875,34 +896,5 @@ export function Tree({
         }}
       </DragOverlay>
     </DragDropProvider>
-  )
-}
-
-function TreeItemInput(props: any) {
-  return props.inputProps.renderPreview(props.inputProps)
-}
-
-function TreeItemPreview(
-  props: ObjectInputProps & {
-    title?: React.ReactNode
-    media?: React.ReactNode
-    icon?: React.ComponentType
-  },
-) {
-  const value = props.value as Item | undefined
-  const childCount = Array.isArray(value?.children) ? value.children.length : 0
-
-  if (childCount > 0) {
-    return (
-      <SanityDefaultPreview
-        title={props.title || 'Untitled'}
-        media={props.media}
-        subtitle={`${childCount} item${childCount === 1 ? '' : 's'}`}
-      />
-    )
-  }
-
-  return (
-    <SanityDefaultPreview layout="compact" title={props.title || 'Untitled'} media={props.media} />
   )
 }
