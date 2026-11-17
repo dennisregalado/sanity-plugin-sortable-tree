@@ -13,7 +13,7 @@ const {chromium} = require('playwright')
 
 const [outDir = 'screenshots', studioUrl = 'http://localhost:3333', ...only] = process.argv.slice(2)
 // Node can't resolve *.localhost; the fake lake answers on any host name
-const LAKE = 'https://localhost:3334'
+const LAKE = `https://localhost:${process.env.FAKE_LAKE_PORT || 3334}`
 // The fake lake uses a self-signed certificate
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
@@ -92,9 +92,9 @@ async function run() {
       await page.goto(scenario.url)
       const field = page.locator('[data-testid="field-items"]')
       await field.waitFor({timeout: 120000})
-      // previews resolve asynchronously; wait for the network to settle
-      await page.waitForLoadState('networkidle').catch(() => {})
-      await page.waitForTimeout(1000)
+      // Previews resolve asynchronously. (Not 'networkidle': listener streams never go idle.)
+      await field.locator('li, [data-ui="Text"]').first().waitFor()
+      await page.waitForTimeout(2000)
       // keep the caret and toasts out of the picture
       await page.addStyleTag({content: '*{caret-color:transparent!important}'})
       await page.mouse.move(0, 0)

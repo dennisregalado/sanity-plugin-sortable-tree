@@ -14,7 +14,7 @@ const {chromium} = require('playwright')
 
 const studioUrl = process.argv[2] ?? 'http://localhost:3333'
 // Node can't resolve *.localhost; the fake lake answers on any host name
-const LAKE = 'https://localhost:3334'
+const LAKE = `https://localhost:${process.env.FAKE_LAKE_PORT || 3334}`
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const lake = {
@@ -145,7 +145,7 @@ async function run() {
     await page.goto(`${studioUrl}/structure/menu;menu-main`)
     const field = page.locator('[data-testid="field-items"]')
     await field.getByText('Home', {exact: true}).first().waitFor({timeout: 120000})
-    await page.waitForLoadState('networkidle').catch(() => {})
+    await page.waitForTimeout(1500)
 
     try {
       await test(page, field)

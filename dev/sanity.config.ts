@@ -4,7 +4,8 @@ import {structureTool} from 'sanity/structure'
 import {sortableTree} from '../src'
 import {schemaTypes} from './schema'
 
-const FAKE_LAKE_PORT = 3334
+// Override to run several Studios against separate fake lakes
+const FAKE_LAKE_PORT = Number(process.env.SANITY_STUDIO_FAKE_LAKE_PORT || 3334)
 
 /**
  * Test Studio for developing the plugin. It talks to the in-memory fake Content Lake in
