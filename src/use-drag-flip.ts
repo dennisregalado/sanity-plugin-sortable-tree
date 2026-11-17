@@ -60,16 +60,28 @@ export function useDragFlip(containerRef: RefObject<HTMLElement | null>) {
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
+    // Measure everything first, then start the animations: reading styles or layout after
+    // cancelling or starting an animation would force the browser to recalculate them, once per
+    // element
+    const moves: Array<{element: HTMLElement; x: number; y: number}> = []
     for (const element of getMovingElements(container)) {
       const previous = from.get(element)
       if (!previous) continue
 
-      // From where it is on screen now, to where it's now laid out
+      // From where it is on screen now (with the slide it's in the middle of), to where it's now
+      // laid out (without it)
       const offset = getSlideOffset(element)
+      const rect = element.getBoundingClientRect()
+      const next = {left: rect.left - offset.x, top: rect.top - offset.y}
+      moves.push({
+        element,
+        x: previous.left + offset.x - next.left,
+        y: previous.top + offset.y - next.top,
+      })
+    }
+
+    for (const {element, x, y} of moves) {
       animations.current.get(element)?.cancel()
-      const next = element.getBoundingClientRect()
-      const x = previous.left + offset.x - next.left
-      const y = previous.top + offset.y - next.top
 
       if (reducedMotion || (!x && !y)) continue
 
