@@ -5,7 +5,7 @@ import {DragDropProvider, DragOverlay} from '@dnd-kit/react'
 import {Box, Card, Grid, Text} from '@sanity/ui'
 import {useToast} from '@sanity/ui/toast'
 import {randomKey} from '@sanity/util/content'
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import {
   type ArrayOfObjectsInputProps,
   type ArrayOfObjectsMember,
@@ -385,6 +385,15 @@ export function Tree({
 
     return projectedItems.find((item) => item.id === activeDragItemId)?.parentId ?? null
   }, [activeDragItemId, projectedItems])
+
+  // Set by keyboard moves: moves the drag overlay to the row's new position after it renders
+  const followSourceRef = useRef<(() => void) | null>(null)
+
+  useLayoutEffect(() => {
+    const follow = followSourceRef.current
+    followSourceRef.current = null
+    follow?.()
+  }, [projectedItems])
 
   const updateProjectedItems = useCallback((nextItems: FlattenedItem[] | null) => {
     projectedItemsRef.current = nextItems
@@ -769,6 +778,9 @@ export function Tree({
 
         event.preventDefault()
 
+        // Keyboard drags move by position in the tree (onDragMove), not by what they're over
+        if (isKeyboardEvent(event.operation.activatorEvent)) return
+
         if (source && target && source.id !== target.id) {
           const activeItems = projectedItemsRef.current ?? dragItems
           const offsetLeft = manager.dragOperation.transform.x
@@ -805,6 +817,55 @@ export function Tree({
         }
 
         const {source, target} = event.operation
+
+        // Up/down arrow keys: move one position in the tree, keeping the depth where possible
+        if (
+          source &&
+          isKeyboardEvent(event.operation.activatorEvent) &&
+          event.by &&
+          event.by.y !== 0 &&
+          event.by.x === 0
+        ) {
+          event.preventDefault()
+
+          const activeItems = projectedItemsRef.current ?? dragItems
+          const index = activeItems.findIndex((item) => item.id === String(source.id))
+          const nextIndex = index + Math.sign(event.by.y)
+          const movedItem = activeItems[index]
+
+          if (!movedItem || nextIndex < 0 || nextIndex >= activeItems.length) return
+
+          const nextItems = activeItems.filter((item) => item !== movedItem)
+          nextItems.splice(nextIndex, 0, movedItem)
+
+          const {depth, parentId} = getProjection(
+            nextItems,
+            movedItem.id,
+            movedItem.depth,
+            maxDepth - sourceDescendantDepth.current,
+          )
+
+          if (!canMoveItemToParent(movedItem, parentId)) return
+
+          nextItems[nextIndex] = {...movedItem, depth, parentId}
+
+          // Move the drag overlay along with the row, once React has placed it (layout effect)
+          const before = source.element?.getBoundingClientRect()
+          followSourceRef.current = () => {
+            const after = manager.dragOperation.source?.element?.getBoundingClientRect()
+
+            if (before && after) {
+              manager.actions.move({
+                // Horizontally, one indentation per level, as with the left/right arrow keys
+                by: {x: indentation * (depth - movedItem.depth), y: after.top - before.top},
+                propagate: false,
+              })
+            }
+          }
+          updateProjectedItems(nextItems)
+
+          return
+        }
 
         if (source && target) {
           const keyboard = isKeyboardEvent(event.operation.activatorEvent)

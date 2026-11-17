@@ -69,6 +69,34 @@ const scenarios = {
     url: docUrl('menu', 'menu-main'),
     context: {isMobile: true, hasTouch: true},
   },
+  'main-keyboard-pickup': {
+    url: docUrl('menu', 'menu-main'),
+    async act(page, field) {
+      const row = field.getByText('Contact', {exact: true}).first().locator('xpath=ancestor::li[1]')
+      await row.locator('button').first().focus()
+      await page.keyboard.press('Space')
+      await page.waitForTimeout(500)
+    },
+    async after(page) {
+      await page.keyboard.press('Escape')
+    },
+  },
+  'main-keyboard': {
+    url: docUrl('menu', 'menu-main'),
+    async act(page, field) {
+      // Mid keyboard drag: "Contact" picked up and moved up two positions
+      const row = field.getByText('Contact', {exact: true}).first().locator('xpath=ancestor::li[1]')
+      await row.locator('button').first().focus()
+      for (const key of ['Space', 'ArrowUp', 'ArrowUp']) {
+        await page.keyboard.press(key)
+        await page.waitForTimeout(300)
+      }
+      await page.waitForTimeout(400)
+    },
+    async after(page) {
+      await page.keyboard.press('Escape')
+    },
+  },
   'main-dialog': {
     url: docUrl('menu', 'menu-main'),
     viewport: true,

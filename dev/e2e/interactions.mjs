@@ -106,6 +106,24 @@ const tests = {
     assert.ok(patches.some((patch) => patch.insert))
   },
 
+  'reorders with the keyboard, one position per arrow key': async (page, field) => {
+    const handle = rowOf(field, 'Contact').locator('button').first()
+    await handle.focus()
+    // Pick up, move up past "Team" and "About" (staying nested), then outdent to the root
+    for (const key of ['Space', 'ArrowUp', 'ArrowUp', 'ArrowLeft', 'Space']) {
+      await page.keyboard.press(key)
+      await page.waitForTimeout(300)
+    }
+
+    const draft = await waitFor(async () => {
+      const doc = await lake.doc('drafts.menu-main')
+      return doc && keys(doc.items).indexOf('contact') === 2 && doc
+    }, 'Contact moved above About')
+
+    assert.deepEqual(keys(draft.items), ['home', 'shop', 'contact', 'about'])
+    assert.deepEqual(keys(draft.items[3].children), ['team'])
+  },
+
   'adds an item with an insert': async (page, field) => {
     await field.getByRole('button', {name: 'Add item'}).last().click()
 

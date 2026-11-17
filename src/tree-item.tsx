@@ -31,6 +31,8 @@ export interface Props {
   sortable?: boolean
 }
 
+const SORTABLE_PLUGINS: PluginConstructor[] = []
+
 const config = {
   alignment: {
     x: 'start',
@@ -39,9 +41,10 @@ const config = {
   transition: {
     idle: true,
   },
-  // React owns the projected order. Disabling the built-in optimistic DOM
-  // reorder avoids jank when rows move between nested subtree containers.
-  plugins: [] as PluginConstructor[],
+  // React owns the projected order, so dnd-kit's sortable plugins stay off: the optimistic DOM
+  // reorder janks when rows move between nested subtree containers, and the tree moves keyboard
+  // drags itself (one position per arrow key, see Tree's onDragMove).
+  plugins: SORTABLE_PLUGINS,
 } as const
 
 // Sanity UI draws the card's border with this custom property: hide it unless the row is hovered
