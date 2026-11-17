@@ -21,7 +21,7 @@ const docUrl = (type, id) => `${studioUrl}/structure/${type};${id}`
 
 /** Each scenario opens a document, optionally interacts, and returns what to capture */
 const scenarios = {
-  main: {url: docUrl('menu', 'menu-main')},
+  'main': {url: docUrl('menu', 'menu-main')},
   'main-hover': {
     url: docUrl('menu', 'menu-main'),
     async act(page, field) {
@@ -63,11 +63,11 @@ const scenarios = {
       await page.waitForTimeout(600)
     },
   },
-  empty: {url: docUrl('menu', 'menu-empty')},
-  readonly: {url: docUrl('readOnlyMenu', 'menu-readonly')},
-  named: {url: docUrl('namedMenu', 'menu-named')},
-  mixed: {url: docUrl('mixedMenu', 'menu-mixed')},
-  malformed: {url: docUrl('menu', 'menu-malformed')},
+  'empty': {url: docUrl('menu', 'menu-empty')},
+  'readonly': {url: docUrl('readOnlyMenu', 'menu-readonly')},
+  'named': {url: docUrl('namedMenu', 'menu-named')},
+  'mixed': {url: docUrl('mixedMenu', 'menu-mixed')},
+  'malformed': {url: docUrl('menu', 'menu-malformed')},
 }
 
 async function run() {

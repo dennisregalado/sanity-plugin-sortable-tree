@@ -1,26 +1,28 @@
 import {Box, Stack} from '@sanity/ui'
-import {useCallback} from 'react'
-import {
-  type ArrayOfObjectsInputProps,
-  type FormPatch,
-  type InputProps,
-  type ObjectItem,
-  type Path,
-} from 'sanity'
+import {useCallback, useMemo} from 'react'
+import {type ArrayOfObjectsInputProps, type FormPatch, type Path} from 'sanity'
 
 import {Tree} from './tree'
-import type {Item as TreeItemValue} from './types'
+import type {Item} from './types'
+import {isTreeItem} from './utils'
 
-const EMPTY: TreeItemValue[] = []
+const EMPTY: Item[] = []
 
-export function SortableTreeInput<Item extends ObjectItem>(
-  props: ArrayOfObjectsInputProps<Item>,
-): React.JSX.Element {
+/**
+ * The tree input. The plugin uses it for arrays with `options.tree`; it can also be set directly as
+ * a field's `components.input`.
+ *
+ * @public
+ */
+export function SortableTreeInput(props: ArrayOfObjectsInputProps): React.JSX.Element {
   const {members, onChange, onItemOpen, onPathFocus, path, schemaType} = props
 
   const maxDepth = schemaType.options?.maxDepth ?? 3
 
-  const items = (Array.isArray(props.value) ? props.value : EMPTY) as unknown as TreeItemValue[]
+  const items = useMemo(
+    () => (Array.isArray(props.value) ? props.value.filter(isTreeItem) : EMPTY),
+    [props.value],
+  )
 
   const handlePatch = useCallback((patches: FormPatch[]) => onChange(patches), [onChange])
 
@@ -37,7 +39,7 @@ export function SortableTreeInput<Item extends ObjectItem>(
     <Stack gap={2} style={{position: 'relative'}}>
       <Tree
         members={members}
-        props={props as unknown as ArrayOfObjectsInputProps<TreeItemValue>}
+        props={props}
         items={items}
         maxDepth={maxDepth}
         readOnly={props.readOnly}
@@ -58,7 +60,7 @@ export function SortableTreeInput<Item extends ObjectItem>(
           pointerEvents: 'none',
         }}
       >
-        {props.renderDefault(props as unknown as InputProps)}
+        {props.renderDefault(props)}
       </Box>
     </Stack>
   )

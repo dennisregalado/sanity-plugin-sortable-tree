@@ -240,18 +240,22 @@ async function commit(mutations, transactionId) {
       visibility: 'transaction',
     }
     for (const listener of listeners) {
-      Promise.all([
-        matches(listener.query, listener.params, change.before),
-        matches(listener.query, listener.params, change.after),
-      ]).then(([wasMatch, isMatch]) => {
-        if (!wasMatch && !isMatch) return
-        const payload = listener.includeResult ? {...event, result: change.after} : event
-        listener.res.write(`event: mutation\ndata: ${JSON.stringify(payload)}\n\n`)
-      })
+      void notify(listener, event, change)
     }
   })
 
   return changes
+}
+
+/** Sends a mutation event to a listener if the document matches its query before or after */
+async function notify(listener, event, change) {
+  const [wasMatch, isMatch] = await Promise.all([
+    matches(listener.query, listener.params, change.before),
+    matches(listener.query, listener.params, change.after),
+  ])
+  if (!wasMatch && !isMatch) return
+  const payload = listener.includeResult ? {...event, result: change.after} : event
+  listener.res.write(`event: mutation\ndata: ${JSON.stringify(payload)}\n\n`)
 }
 
 /** Translates the Actions API into plain mutations */

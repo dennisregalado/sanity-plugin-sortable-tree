@@ -1,31 +1,31 @@
-import {useSortable} from '@dnd-kit/react/sortable'
 import type {PluginConstructor} from '@dnd-kit/abstract'
-import type React from 'react'
+import {useSortable} from '@dnd-kit/react/sortable'
 import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {ChevronRightIcon} from '@sanity/icons/ChevronRight'
 import {DragHandleIcon} from '@sanity/icons/DragHandle'
 import {EditIcon} from '@sanity/icons/Edit'
 import {TrashIcon} from '@sanity/icons/Trash'
-import {FlattenedItem} from './types'
 import {Box, Button, Card, Flex, Text} from '@sanity/ui'
 import {Tooltip} from '@sanity/ui/tooltip'
+import type React from 'react'
 import {memo, useMemo, useState} from 'react'
 import {type ArrayOfObjectsItemMember, useTranslation} from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
+import {FlattenedItem} from './types'
 
 export interface Props {
-  item: FlattenedItem
+  item: Pick<FlattenedItem, 'id' | 'collapsed' | 'depth' | 'parentId'>
   member: ArrayOfObjectsItemMember
   /** Render callbacks for the item's preview */
   callbacks: RenderCallbacks
   index: number
   disabled?: boolean
-  onRemove?(id: string): void
-  onCollapse?(id: string): void
+  onRemove?: (id: string) => void
+  onCollapse?: (id: string) => void
   hasChildren?: boolean
-  onItemOpen?(id: string): void
+  onItemOpen?: (id: string) => void
 }
 
 const config = {
@@ -40,6 +40,11 @@ const config = {
   // reorder avoids jank when rows move between nested subtree containers.
   plugins: [] as PluginConstructor[],
 } as const
+
+// Sanity UI draws the card's border with this custom property: hide it unless the row is hovered
+const HIDDEN_BORDER_STYLE: React.CSSProperties = Object.fromEntries([
+  ['--card-border-color', 'transparent'],
+])
 
 function TreeItemComponent({
   item,
@@ -88,11 +93,7 @@ function TreeItemComponent({
         radius={2}
         border
         tone={isDragging ? 'suggest' : 'default'}
-        style={
-          {
-            ...(!isHovering ? {'--card-border-color': 'transparent'} : null),
-          } as React.CSSProperties
-        }
+        style={isHovering ? undefined : HIDDEN_BORDER_STYLE}
         shadow={!isHovering && isDragging ? 5 : 0}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}

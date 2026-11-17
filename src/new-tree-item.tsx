@@ -6,7 +6,7 @@ import {useTranslation} from 'sanity'
 import {sortableTreeLocaleNamespace} from './i18n'
 
 interface Props {
-  addItem(parentId: string | null): void
+  addItem: (parentId: string | null) => void
   disabled?: boolean
   parentId?: string | null
 }

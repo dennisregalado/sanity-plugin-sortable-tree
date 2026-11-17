@@ -12,13 +12,4 @@ export default defineConfig({
     noSanityUiPeerDependency: 'off',
     noSanityIconsPeerDependency: 'off',
   },
-
-  // Remove this block to enable strict export validation
-  extract: {
-    rules: {
-      'ae-incompatible-release-tags': 'off',
-      'ae-internal-missing-underscore': 'off',
-      'ae-missing-release-tag': 'off',
-    },
-  },
 })

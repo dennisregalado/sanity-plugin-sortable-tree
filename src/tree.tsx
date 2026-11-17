@@ -1,25 +1,11 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {configure} from '@dnd-kit/abstract'
 import {Accessibility, defaultPreset} from '@dnd-kit/dom'
-import {DragDropProvider, DragOverlay} from '@dnd-kit/react'
 import {isKeyboardEvent} from '@dnd-kit/dom/utilities'
-import {randomKey} from '@sanity/util/content'
-import {useToast} from '@sanity/ui/toast'
-import {sortableTreeLocaleNamespace} from './i18n'
-import {FlattenedItem, type Item} from './types'
-import {flattenTree, getProjection, getDragDepth, getDescendants, walkTree} from './utils'
-import {
-  CHILDREN_FIELD,
-  getAppendPatches,
-  getChildrenPath,
-  getMovePatches,
-  getRemovePatches,
-} from './patches'
-import {MemberPreview, type RenderCallbacks} from './member-preview'
-import {TreeItem} from './tree-item'
-import {TreeItemOverlay} from './tree-overlay'
-import {NewTreeItem} from './new-tree-item'
+import {DragDropProvider, DragOverlay} from '@dnd-kit/react'
 import {Box, Card, Grid, Text} from '@sanity/ui'
+import {useToast} from '@sanity/ui/toast'
+import {randomKey} from '@sanity/util/content'
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {
   type ArrayOfObjectsInputProps,
   type ArrayOfObjectsMember,
@@ -29,16 +15,31 @@ import {
   useTranslation,
 } from 'sanity'
 
+import {sortableTreeLocaleNamespace} from './i18n'
+import {MemberPreview, type RenderCallbacks} from './member-preview'
+import {NewTreeItem} from './new-tree-item'
+import {
+  CHILDREN_FIELD,
+  getAppendPatches,
+  getChildrenPath,
+  getMovePatches,
+  getRemovePatches,
+} from './patches'
+import {TreeItem} from './tree-item'
+import {TreeItemOverlay} from './tree-overlay'
+import {FlattenedItem, type Item} from './types'
+import {flattenTree, getDescendants, getDragDepth, getProjection, isRecord, walkTree} from './utils'
+
 interface Props {
   items: Item[]
   indentation?: number
   /** Called with patches relative to the root array */
-  onPatch(patches: FormPatch[]): void
+  onPatch: (patches: FormPatch[]) => void
   /**
    * Called with the path of an item to open, and the path of its first field to focus (both
    * relative to the root array)
    */
-  onItemOpen?(path: Path, focusPath?: Path): void
+  onItemOpen?: (path: Path, focusPath?: Path) => void
   members?: ArrayOfObjectsMember[]
   maxDepth?: number
   /** When true, no items can be added, moved or removed */
@@ -46,11 +47,14 @@ interface Props {
   props: ArrayOfObjectsInputProps<any>
 }
 
-interface TreeRenderNode extends Omit<FlattenedItem, 'children'> {
+type TreeNodePosition = Pick<FlattenedItem, 'id' | 'parentId' | 'depth' | 'index' | 'collapsed'>
+
+interface TreeRenderNode extends TreeNodePosition {
   children: TreeRenderNode[]
 }
 
 const COLLAPSE_DURATION_MS = 250
+const NO_ITEMS: FlattenedItem[] = []
 
 /** The visible title of a draggable row, for screen reader announcements */
 function getRowTitle(element: Element | undefined): string {
@@ -73,8 +77,8 @@ function buildRenderTree(flattenedItems: FlattenedItem[]): TreeRenderNode[] {
   const rootChildren: TreeRenderNode[] = []
   const nodes = new Map<string, TreeRenderNode>()
 
-  for (const item of flattenedItems) {
-    nodes.set(item.id, {...item, children: []})
+  for (const {id, parentId, depth, index, collapsed} of flattenedItems) {
+    nodes.set(id, {id, parentId, depth, index, collapsed, children: []})
   }
 
   for (const item of flattenedItems) {
@@ -139,7 +143,7 @@ function CollapsibleSubtree({
   children,
 }: {
   open: boolean
-  children(disabled: boolean): React.ReactNode
+  children: (disabled: boolean) => React.ReactNode
 }) {
   const [mounted, setMounted] = useState(open)
   const [expanded, setExpanded] = useState(open)
@@ -149,6 +153,8 @@ function CollapsibleSubtree({
     let unmountTimeout: ReturnType<typeof setTimeout> | undefined
 
     if (open) {
+      // Collapse first, then expand on the next frames so the transition plays (also on mount).
+      // oxlint-disable-next-line react/set-state-in-effect -- drives the CSS transition
       setMounted(true)
       setExpanded(false)
       animationFrames.push(
@@ -207,7 +213,12 @@ export function Tree({
     collectDefaultCollapsedKeys(items),
   )
   const [projectedItems, setProjectedItems] = useState<FlattenedItem[] | null>(null)
-  const [activeDragItemId, setActiveDragItemId] = useState<string | null>(null)
+  // The dragged item and its children, for rendering (the refs below are for event handlers)
+  const [dragSource, setDragSource] = useState<{
+    item: FlattenedItem
+    children: FlattenedItem[]
+  } | null>(null)
+  const activeDragItemId = dragSource?.item.id ?? null
   const projectedItemsRef = useRef<FlattenedItem[] | null>(null)
   const manuallyToggledCollapsedKeysRef = useRef<Set<string>>(new Set())
   const toast = useToast()
@@ -345,8 +356,8 @@ export function Tree({
 
       const id = member.key ? (parentId ? `${parentId}/${member.key}` : member.key) : null
 
-      if (member.key) {
-        next.set(id!, member)
+      if (id) {
+        next.set(id, member)
       }
 
       if (depth >= maxDepth) return
@@ -478,23 +489,25 @@ export function Tree({
 
       // Like the Studio's own array input: insert right away, then fill in the schema's
       // initial value. `setIfMissing` keeps anything the user typed in the meantime.
-      resolveInitialValue(itemSchemaType, {})
-        .then((initialValue) => {
-          const fields = Object.entries((initialValue ?? {}) as Record<string, unknown>).filter(
+      const applyInitialValue = async () => {
+        try {
+          const initialValue: unknown = await resolveInitialValue(itemSchemaType, {})
+          const fields = Object.entries(isRecord(initialValue) ? initialValue : {}).filter(
             ([name, value]) => name !== '_key' && name !== '_type' && value !== undefined,
           )
 
           if (fields.length) {
             onPatch(fields.map(([name, value]) => setIfMissing(value, [...itemPath, name])))
           }
-        })
-        .catch((error: unknown) => {
+        } catch (error) {
           toast.push({
             status: 'error',
             title: t('initial-value-error.title'),
             description: error instanceof Error ? error.message : String(error),
           })
-        })
+        }
+      }
+      void applyInitialValue()
     },
     [
       canAddItemToParent,
@@ -584,7 +597,7 @@ export function Tree({
       const isOptimisticParent = optimisticParentId === node.id && node.children.length > 0
       const sortableIndex = dragIndexById.get(node.id) ?? node.index
       const sortableDisabled = disabled || !dragIndexById.has(node.id)
-      const isDraggingTree = activeDragItemId === node.id && sourceChildren.current.length > 0
+      const isDraggingTree = activeDragItemId === node.id && (dragSource?.children.length ?? 0) > 0
 
       return (
         <li
@@ -639,6 +652,7 @@ export function Tree({
     [
       activeDragItemId,
       canAddItemToParent,
+      dragSource,
       collapsedKeys,
       dragIndexById,
       handleAddItem,
@@ -670,30 +684,21 @@ export function Tree({
 
         const {depth} = draggedItem
 
+        // Visible descendants move with the item: take them out of the list while dragging
+        const descendants = getDescendants(activeItems, source.id)
+        const children = activeItems.filter((item) => descendants.has(item.id))
+
         // Store the source item's initial depth for later use
         initialDepth.current = depth
         sourceItem.current = draggedItem
-        setActiveDragItemId(draggedItem.id)
-        sourceChildren.current = []
-        sourceDescendantDepth.current = 0
-
-        // Get all visible descendants of the source item
-        const descendants = getDescendants(activeItems, source.id)
-
-        updateProjectedItems(
-          activeItems.filter((item) => {
-            if (descendants.has(item.id)) {
-              sourceChildren.current = [...sourceChildren.current, item]
-              sourceDescendantDepth.current = Math.max(
-                sourceDescendantDepth.current,
-                item.depth - draggedItem.depth,
-              )
-              return false
-            }
-
-            return true
-          }),
+        sourceChildren.current = children
+        sourceDescendantDepth.current = Math.max(
+          0,
+          ...children.map((item) => item.depth - draggedItem.depth),
         )
+        setDragSource({item: draggedItem, children})
+
+        updateProjectedItems(activeItems.filter((item) => !descendants.has(item.id)))
       }}
       onDragOver={(event, manager) => {
         const {source, target} = event.operation
@@ -739,7 +744,7 @@ export function Tree({
 
         if (source && target) {
           const keyboard = isKeyboardEvent(event.operation.activatorEvent)
-          const currentDepth = source.data!.depth ?? 0
+          const currentDepth = source.data.depth ?? 0
           let keyboardDepth
 
           if (keyboard) {
@@ -776,25 +781,23 @@ export function Tree({
             }
           }
 
-          if (source.data!.depth !== depth || source.data!.parentId !== parentId) {
+          if (source.data.depth !== depth || source.data.parentId !== parentId) {
             const movedItem = activeItems.find((item) => item.id === String(source.id))
 
             if (!movedItem || !canMoveItemToParent(movedItem, parentId)) {
               return
             }
 
-            updateProjectedItems(
-              activeItems.map((item) =>
-                item.id === String(source.id) ? {...item, depth, parentId} : item,
-              ),
-            )
+            const nextItems = [...activeItems]
+            nextItems[nextItems.indexOf(movedItem)] = {...movedItem, depth, parentId}
+            updateProjectedItems(nextItems)
           }
         }
       }}
       onDragEnd={(event) => {
         if (event.canceled) {
           sourceItem.current = null
-          setActiveDragItemId(null)
+          setDragSource(null)
           sourceChildren.current = []
           sourceDescendantDepth.current = 0
           updateProjectedItems(null)
@@ -807,7 +810,7 @@ export function Tree({
 
         if (!restoredItems.every((item) => canMoveItemToParent(item, item.parentId))) {
           sourceItem.current = null
-          setActiveDragItemId(null)
+          setDragSource(null)
           sourceChildren.current = []
           sourceDescendantDepth.current = 0
           updateProjectedItems(null)
@@ -852,7 +855,7 @@ export function Tree({
 
         if (movePatches.length) onPatch(movePatches)
         sourceItem.current = null
-        setActiveDragItemId(null)
+        setDragSource(null)
         sourceChildren.current = []
         sourceDescendantDepth.current = 0
         updateProjectedItems(null)
@@ -877,13 +880,12 @@ export function Tree({
       </Card>
       <DragOverlay style={{width: '100%'}}>
         {(overlayProps) => {
-          const item =
-            sourceItem.current ?? dragItems.find(({id}) => id === String(overlayProps.id))
+          const item = dragSource?.item ?? dragItems.find(({id}) => id === String(overlayProps.id))
           const member = item ? memberById.get(item.id) : undefined
 
           return (
             <TreeItemOverlay
-              descendants={sourceChildren.current}
+              descendants={dragSource?.children ?? NO_ITEMS}
               hasChildren={item ? treeMeta.hasChildren.has(item.id) : false}
               item={item}
               preview={

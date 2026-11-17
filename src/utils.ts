@@ -11,9 +11,15 @@ export function isTreeItem(value: unknown): value is Item {
   return (
     typeof value === 'object' &&
     value !== null &&
-    typeof (value as {_key?: unknown})._key === 'string' &&
-    (value as {_key: string})._key.length > 0
+    '_key' in value &&
+    typeof value._key === 'string' &&
+    value._key.length > 0
   )
+}
+
+/** Whether `value` is a plain object */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** The valid children of an item. Malformed `children` (not an array) count as none. */

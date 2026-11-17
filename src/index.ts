@@ -1,23 +1,14 @@
-import {createElement} from 'react'
-import {
-  type ArrayOfObjectsInputProps,
-  definePlugin,
-  type InputProps,
-  isArrayOfObjectsSchemaType,
-} from 'sanity'
+import {definePlugin} from 'sanity'
 
-import {SortableTreeInput} from './input'
+import {FormInput} from './form-input'
 import {sortableTreeLocaleNamespace, sortableTreeUsEnglishLocaleBundle} from './i18n'
+import {SortableTreeInput} from './input'
 import type {SortableTreeArrayOptions} from './options'
-import {TreeErrorBoundary} from './tree-error-boundary'
 
 export {SortableTreeInput}
 export type {Item, FlattenedItem} from './types'
 export type {SortableTreeArrayOptions}
 export {sortableTreeLocaleNamespace}
-
-// Ensure ArrayOptions augmentation is loaded with the plugin
-export type {} from './options'
 
 /**
  * Usage in `sanity.config.ts` (or .js)
@@ -43,21 +34,7 @@ export const sortableTree = definePlugin(() => {
     i18n: {bundles: [sortableTreeUsEnglishLocaleBundle]},
     form: {
       components: {
-        input: (props: InputProps) => {
-          // Any array of objects with `options.tree`, including named array types
-          if (isArrayOfObjectsSchemaType(props.schemaType) && props.schemaType.options?.tree) {
-            const arrayProps = props as ArrayOfObjectsInputProps
-
-            // If the tree ever throws, fall back to the Studio's default array input
-            return createElement(
-              TreeErrorBoundary,
-              {fallback: () => props.renderDefault(props)},
-              createElement(SortableTreeInput, arrayProps),
-            )
-          }
-
-          return props.renderDefault(props)
-        },
+        input: FormInput,
       },
     },
   }

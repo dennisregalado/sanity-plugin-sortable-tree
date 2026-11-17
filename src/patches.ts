@@ -2,7 +2,7 @@ import {randomKey} from '@sanity/util/content'
 import {type FormPatch, insert, type Path, setIfMissing, unset} from 'sanity'
 
 import type {Item} from './types'
-import {isTreeItem} from './utils'
+import {isRecord, isTreeItem} from './utils'
 
 /** The field holding nested items */
 export const CHILDREN_FIELD = 'children'
@@ -12,21 +12,21 @@ export function getChildrenPath(parentPath: Path | null): Path {
   return parentPath ? [...parentPath, CHILDREN_FIELD] : []
 }
 
-/** Returns the array at `path` (relative to the root array), or `[]` */
-export function getArrayAt(value: Item[] | undefined, path: Path): Item[] {
+/** Returns the valid items of the array at `path` (relative to the root array), or `[]` */
+export function getArrayAt(value: unknown, path: Path): Item[] {
   let current: unknown = value
 
   for (const segment of path) {
     if (Array.isArray(current) && typeof segment === 'object' && segment && '_key' in segment) {
       current = current.find((item) => isTreeItem(item) && item._key === segment._key)
-    } else if (typeof segment === 'string' && current && typeof current === 'object') {
-      current = (current as Record<string, unknown>)[segment]
+    } else if (typeof segment === 'string' && isRecord(current)) {
+      current = current[segment]
     } else {
       return []
     }
   }
 
-  return Array.isArray(current) ? (current as Item[]) : []
+  return Array.isArray(current) ? current.filter(isTreeItem) : []
 }
 
 /** Removes the item at `path`, with its children */

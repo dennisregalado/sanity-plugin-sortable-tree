@@ -3,7 +3,6 @@ import {
   ArrayOfObjectsItem,
   type ArrayOfObjectsItemMember,
   type ItemProps,
-  type ObjectItemProps,
   type PreviewProps,
   type RenderAnnotationCallback,
   type RenderArrayOfObjectsItemCallback,
@@ -11,7 +10,6 @@ import {
   type RenderFieldCallback,
   type RenderInputCallback,
   type RenderPreviewCallback,
-  type RenderPreviewCallbackProps,
   useTranslation,
 } from 'sanity'
 
@@ -30,8 +28,10 @@ export interface RenderCallbacks {
 
 /** Renders only the item's preview (the tree row provides the rest) */
 function TreeItemInput(props: ItemProps) {
-  const {inputProps} = props as ObjectItemProps
-  return inputProps.renderPreview(inputProps as unknown as RenderPreviewCallbackProps)
+  if (!('inputProps' in props)) return props.renderDefault(props)
+
+  const {inputProps} = props
+  return inputProps.renderPreview(inputProps)
 }
 
 /** The Studio's own preview of the item, in the compact layout */

@@ -1,12 +1,18 @@
 import {defineLocaleResourceBundle} from 'sanity'
 
-/** The locale namespace for this plugin's strings */
+/**
+ * The locale namespace for this plugin's strings.
+ *
+ * @public
+ */
 export const sortableTreeLocaleNamespace = 'sortable-tree' as const
 
 /**
  * English strings. Translate them by adding a bundle for another locale with the same namespace
  * (`defineLocaleResourceBundle({locale: 'nb-NO', namespace: 'sortable-tree', resources: {...}})`)
  * to your Studio's `i18n.bundles`.
+ *
+ * @internal
  */
 export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
   locale: 'en-US',
@@ -16,22 +22,22 @@ export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
     /** Button that adds an item to the end of a list */
     'add-item': 'Add item',
     /** Tooltip and label for the button that collapses an item's children */
-    collapse: 'Collapse',
+    'collapse': 'Collapse',
     /** Tooltip and label for the drag handle */
     'drag-to-reorder': 'Drag to reorder',
     /** Tooltip and label for the button that opens an item */
-    edit: 'Edit',
+    'edit': 'Edit',
     /** Tooltip and label for the button that expands an item's children */
-    expand: 'Expand',
+    'expand': 'Expand',
     /** Shown when the list is empty */
     'no-items': 'No items',
     /** Tooltip and label for the button that removes an item */
-    remove: 'Remove',
+    'remove': 'Remove',
     /** Number of items nested under an item, or being dragged together */
     'item-count_one': '{{count}} item',
     'item-count_other': '{{count}} items',
     /** Fallback title for items without one */
-    untitled: 'Untitled',
+    'untitled': 'Untitled',
     /** Toast when the schema's initial value for a new item can't be resolved */
     'initial-value-error.title': 'Could not resolve initial value',
     /** Screen reader instructions for the drag handle */

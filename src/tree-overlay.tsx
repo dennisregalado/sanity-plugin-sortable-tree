@@ -1,12 +1,12 @@
 import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {DragHandleIcon} from '@sanity/icons/DragHandle'
+import {Box, Button, Card, Flex, Text} from '@sanity/ui'
 import {memo, useMemo} from 'react'
 import type React from 'react'
 import {useTranslation} from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
 import {FlattenedItem} from './types'
-import {Box, Button, Card, Flex, Text} from '@sanity/ui'
 
 interface Props {
   descendants: FlattenedItem[]
