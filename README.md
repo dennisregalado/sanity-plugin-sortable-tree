@@ -184,7 +184,8 @@ means:
 
 References are edited in their row, without a dialog:
 
-- A picked reference looks like any other row: the referenced document's preview. Click it, or
+- A picked reference sits in the row like any other item, showing the referenced document's
+  preview with its status (published, draft, changes), as in the Studio's reference input. Click it, or
   its pencil (**Replace reference**), to search for another document. Pick one to replace it, or
   press Escape (or click elsewhere) to keep the current one.
 - An empty reference, for example one just added from the **Add item** menu, shows the search.

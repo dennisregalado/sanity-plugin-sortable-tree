@@ -14,9 +14,12 @@ import {memo, useCallback, useMemo, useState} from 'react'
 import {
   type ArrayOfObjectsItemMember,
   type FormPatch,
+  SanityDefaultPreview,
   type SchemaType,
+  SearchResultItemPreview,
   set,
   unset,
+  usePerspective,
   useTranslation,
 } from 'sanity'
 
@@ -24,7 +27,7 @@ import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
 import {type AddableType, AddChildButton} from './new-tree-item'
 import type {PatchInput} from './patches'
-import {ReferenceSearch, type ReferenceTarget, useReferenceAvailable} from './reference-search'
+import {ReferenceSearch, type ReferenceTarget, useReferencedType} from './reference-search'
 import {FlattenedItem} from './types'
 import {isReferenceType} from './utils'
 import {collectValidation} from './validation'
@@ -141,7 +144,9 @@ function TreeItemComponent({
     () => (isReference ? getReferenceTargets(member.item.schemaType) : NO_TARGETS),
     [isReference, member.item.schemaType],
   )
-  const referenceAvailable = useReferenceAvailable(referenceId, referenceTargets)
+  const referencedType = useReferencedType(referenceId, referenceTargets)
+  const referencedSchemaType = referenceTargets.find((type) => type.name === referencedType)
+  const perspective = usePerspective()
   // Replacing a picked reference: the row shows the search until one is picked or it's left
   const [replacing, setReplacing] = useState(false)
   const searching = isReference && (!referenceId || replacing)
@@ -250,7 +255,8 @@ function TreeItemComponent({
               onDone={handleSearchDone}
             />
           ) : (
-            // A picked reference looks like any other item: its (referenced document's) preview
+            // A picked reference sits in the row like any other item, showing the referenced
+            // document's preview with its status, like the color select plugin's preset reference
             <Button
               disabled={isDisabled}
               style={{minHeight: 32}}
@@ -261,11 +267,26 @@ function TreeItemComponent({
               onClick={handleOpen}
             >
               <Flex align="center" justify="space-between" style={{width: '100%'}}>
-                {referenceAvailable === false ? (
+                {referenceId && referencedType === null ? (
                   <Box paddingY={2} style={{minWidth: 0}}>
                     <Text muted size={1} textOverflow="ellipsis">
                       {t('reference.unavailable')}
                     </Text>
+                  </Box>
+                ) : referenceId ? (
+                  <Box flex={1} style={{marginLeft: -8, minWidth: 0}}>
+                    {referencedType && referencedSchemaType ? (
+                      <SearchResultItemPreview
+                        documentId={referenceId}
+                        documentType={referencedType}
+                        layout="compact"
+                        perspective={perspective.perspectiveStack}
+                        schemaType={referencedSchemaType}
+                        showBadge={false}
+                      />
+                    ) : (
+                      <SanityDefaultPreview isPlaceholder layout="compact" />
+                    )}
                   </Box>
                 ) : (
                   <Box style={{marginLeft: -8, minWidth: 0}}>

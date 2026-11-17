@@ -47,13 +47,14 @@ interface Props {
 }
 
 /**
- * Whether the referenced document exists (as a draft or published) and is of a type the reference
- * allows, like the Studio's reference input checks. `undefined` while loading or without an id.
+ * The referenced document's type, if it exists (as a draft or published) and is a type the
+ * reference allows, like the Studio's reference input checks: `null` if not, `undefined` while
+ * loading or without an id
  */
-export function useReferenceAvailable(
+export function useReferencedType(
   documentId: string | undefined,
   to: SchemaType[],
-): boolean | undefined {
+): string | null | undefined {
   const client = useClient({apiVersion: API_VERSION})
   const allowedKey = to.map((type) => type.name).join('|')
   const [result, setResult] = useState<{id: string; type: string | null}>()
@@ -77,7 +78,7 @@ export function useReferenceAvailable(
   }, [client, documentId])
 
   if (!documentId || result?.id !== documentId) return undefined
-  return Boolean(result.type && allowedKey.split('|').includes(result.type))
+  return result.type && allowedKey.split('|').includes(result.type) ? result.type : null
 }
 
 /**
