@@ -352,11 +352,30 @@ const tests = {
 
       const draft = await waitFor(async () => {
         const doc = await lake.doc('drafts.menu-links')
-        return doc?.items.length === 4 && doc.items[3]._ref && doc
+        return doc?.items.length === 5 && doc.items[4]._ref && doc
       }, 'a reference to the tote bag product')
       assert.deepEqual(
-        {_type: draft.items[3]._type, _ref: draft.items[3]._ref, _weak: draft.items[3]._weak},
+        {_type: draft.items[4]._type, _ref: draft.items[4]._ref, _weak: draft.items[4]._weak},
         {_type: 'link', _ref: 'prod-tote', _weak: undefined},
+      )
+    },
+  },
+
+  'keeps the search open when clicking inside its popover, not on a result': {
+    doc: LINKS,
+    run: async (page, field) => {
+      await addReference(page, field, 'Page or product')
+      const popover = page.locator('[data-ui="Popover"]').filter({hasText: 'Documents'})
+      await popover.getByText('Documents', {exact: true}).click()
+      // Its scroll container, past the results (where a long list's scrollbar is)
+      const box = await popover.boundingBox()
+      await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2)
+      await page.waitForTimeout(300)
+
+      assert.ok(await popover.isVisible(), 'the popover stays open')
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+        'Search for a reference',
       )
     },
   },
@@ -369,11 +388,11 @@ const tests = {
 
       const draft = await waitFor(async () => {
         const doc = await lake.doc('drafts.menu-links')
-        return doc?.items[3]?._ref && doc
+        return doc?.items[4]?._ref && doc
       }, 'a reference to the draft hat')
-      assert.deepEqual(draft.items[3]._ref, 'prod-hat')
-      assert.equal(draft.items[3]._weak, true)
-      assert.deepEqual(draft.items[3]._strengthenOnPublish, {type: 'product'})
+      assert.deepEqual(draft.items[4]._ref, 'prod-hat')
+      assert.equal(draft.items[4]._weak, true)
+      assert.deepEqual(draft.items[4]._strengthenOnPublish, {type: 'product'})
     },
   },
 
@@ -385,12 +404,12 @@ const tests = {
 
       const draft = await waitFor(async () => {
         const doc = await lake.doc('drafts.menu-links')
-        return doc?.items[3]?._ref && doc
+        return doc?.items[4]?._ref && doc
       }, 'a weak reference to Journal')
-      assert.equal(draft.items[3]._type, 'weakPage')
-      assert.equal(draft.items[3]._ref, 'page-journal')
-      assert.equal(draft.items[3]._weak, true)
-      assert.equal(draft.items[3]._strengthenOnPublish, undefined)
+      assert.equal(draft.items[4]._type, 'weakPage')
+      assert.equal(draft.items[4]._ref, 'page-journal')
+      assert.equal(draft.items[4]._weak, true)
+      assert.equal(draft.items[4]._strengthenOnPublish, undefined)
     },
   },
 
@@ -414,9 +433,7 @@ const tests = {
       await shoes.getByText('Shoes', {exact: true}).first().click()
       await waitFor(() => page.url().includes('page-shoes'), 'the Shoes page to open in a pane')
       await waitFor(
-        async () =>
-          (await shoes.locator('a [data-selected]').count()) > 0 ||
-          (await shoes.locator('a [data-ui="Button"][data-selected=""]').count()) > 0,
+        async () => (await shoes.locator('a [data-ui="Button"][data-open]').count()) > 0,
         'the row to be selected while its pane is open',
       )
       // Close the pane again: at this width it squeezes the document's own pane
@@ -537,7 +554,10 @@ async function run() {
   const browser = await chromium.launch()
   let failed = 0
 
+  // `E2E_ONLY=<part of a test name>` runs just the matching tests
+  const only = process.env.E2E_ONLY
   for (const [name, entry] of Object.entries(tests)) {
+    if (only && !name.includes(only)) continue
     const {doc: [type, id] = ['menu', 'menu-main'], run: test} =
       typeof entry === 'function' ? {run: entry} : entry
     await lake.reset()

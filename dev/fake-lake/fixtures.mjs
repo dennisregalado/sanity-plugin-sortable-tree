@@ -95,6 +95,8 @@ export const fixtures = [
     _type: 'linkMenu',
     title: 'Links to pages and products',
     items: [
+      // A menu item without children: its row's "+" offers the menu item and page reference types
+      navItem('shop', 'Shop', null),
       {_key: 'link-home', _type: 'link', _ref: 'page-home'},
       {_key: 'link-sneaker', _type: 'link', _ref: 'prod-sneaker'},
       {_key: 'weak-about', _type: 'weakPage', _ref: 'page-about', _weak: true},
