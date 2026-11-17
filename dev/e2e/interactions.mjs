@@ -176,15 +176,60 @@ const tests = {
     assert.deepEqual(keys(draft.items), ['home', 'shop', 'about', 'contact'])
   },
 
-  'collapses and expands everything': async (page, field) => {
-    const dresses = field.getByText('Dresses', {exact: true}).first()
-    await field.getByRole('button', {name: 'Collapse all'}).click()
-    await waitFor(async () => !(await dresses.isVisible()), 'nested items hidden')
-    await field.getByRole('button', {name: 'Expand all'}).click()
-    await waitFor(() => dresses.isVisible(), 'nested items shown again')
+  'shows the first 4 items of each list, then "Show all N items"': {
+    doc: ['menu', 'menu-long'],
+    run: async (page, field) => {
+      const visible = (title) => field.getByText(title, {exact: true}).first().isVisible()
+      // The root list: 7 items, the first 4 shown
+      await field.getByText('Stores', {exact: true}).first().waitFor()
+      assert.equal(await visible('About'), false, "About is past the root list's limit")
+      // Shop's list: 6 items, the first 4 shown
+      assert.equal(await visible('Home & living'), true)
+      assert.equal(await visible('Beauty'), false, "Beauty is past Shop's limit")
 
-    // Expanding and collapsing is view state: nothing is written
-    assert.equal(await lake.doc('drafts.menu-main'), null)
+      await field.getByRole('button', {name: 'Show all 6 items'}).click()
+      await waitFor(() => visible('Beauty'), 'Shop showing all its items')
+      assert.equal(await visible('About'), false, 'the root list stays collapsed')
+
+      await field.getByRole('button', {name: 'Show all 7 items'}).click()
+      await waitFor(() => visible('Contact'), 'the root list showing all its items')
+      assert.equal(await field.getByRole('button', {name: 'Show fewer items'}).count(), 2)
+
+      await field.getByRole('button', {name: 'Show fewer items'}).last().click()
+      await waitFor(async () => !(await visible('Contact')), 'the root list collapsed again')
+
+      // Showing and hiding items is view state: nothing is written
+      assert.equal(await lake.doc('drafts.menu-long'), null)
+    },
+  },
+
+  'shows the list of an item the Studio focuses past its limit': {
+    // Opens the document with "About" (the root list's 6th item) focused, its dialog open
+    doc: ['menu', 'menu-long,path=items%5B_key%3D%3D%22about%22%5D'],
+    run: async (page, field) => {
+      await waitFor(
+        async () => (await field.getByRole('button', {name: 'Show fewer items'}).count()) === 1,
+        'the root list showing all its items',
+      )
+      // Shop's list has nothing focused: it stays collapsed
+      assert.equal(await field.getByRole('button', {name: 'Show all 6 items'}).count(), 1)
+    },
+  },
+
+  'shows the whole list when adding to a collapsed one': {
+    doc: ['menu', 'menu-long'],
+    run: async (page, field) => {
+      await field.getByRole('button', {name: 'Add item'}).last().click()
+      await waitFor(
+        () => field.getByText('Contact', {exact: true}).first().isVisible(),
+        'the root list expanded to show the new item',
+      )
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-long')
+        return doc?.items.length === 8 && doc
+      }, 'an eighth root item')
+      assert.equal(draft.items[7]._type, 'menuItem')
+    },
   },
 
   'adds an item with an insert': async (page, field) => {
@@ -219,6 +264,8 @@ const tests = {
   'long trees mount rows as they scroll into view': {
     doc: ['menu', 'menu-big'],
     run: async (page, field) => {
+      // 100 groups: the list shows the first 4 until it's expanded
+      await field.getByRole('button', {name: 'Show all 100 items'}).click()
       const last = field.getByText('Group 100', {exact: true}).first()
       // Off-screen rows are placeholders until they come near the viewport: scroll down to it
       await page.mouse.move(700, 700)
@@ -352,11 +399,30 @@ const tests = {
 
       const draft = await waitFor(async () => {
         const doc = await lake.doc('drafts.menu-links')
-        return doc?.items.length === 4 && doc.items[3]._ref && doc
+        return doc?.items.length === 5 && doc.items[4]._ref && doc
       }, 'a reference to the tote bag product')
       assert.deepEqual(
-        {_type: draft.items[3]._type, _ref: draft.items[3]._ref, _weak: draft.items[3]._weak},
+        {_type: draft.items[4]._type, _ref: draft.items[4]._ref, _weak: draft.items[4]._weak},
         {_type: 'link', _ref: 'prod-tote', _weak: undefined},
+      )
+    },
+  },
+
+  'keeps the search open when clicking inside its popover, not on a result': {
+    doc: LINKS,
+    run: async (page, field) => {
+      await addReference(page, field, 'Page or product')
+      const popover = page.locator('[data-ui="Popover"]').filter({hasText: 'Documents'})
+      await popover.getByText('Documents', {exact: true}).click()
+      // Its scroll container, past the results (where a long list's scrollbar is)
+      const box = await popover.boundingBox()
+      await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2)
+      await page.waitForTimeout(300)
+
+      assert.ok(await popover.isVisible(), 'the popover stays open')
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+        'Search for a reference',
       )
     },
   },
@@ -369,11 +435,11 @@ const tests = {
 
       const draft = await waitFor(async () => {
         const doc = await lake.doc('drafts.menu-links')
-        return doc?.items[3]?._ref && doc
+        return doc?.items[4]?._ref && doc
       }, 'a reference to the draft hat')
-      assert.deepEqual(draft.items[3]._ref, 'prod-hat')
-      assert.equal(draft.items[3]._weak, true)
-      assert.deepEqual(draft.items[3]._strengthenOnPublish, {type: 'product'})
+      assert.deepEqual(draft.items[4]._ref, 'prod-hat')
+      assert.equal(draft.items[4]._weak, true)
+      assert.deepEqual(draft.items[4]._strengthenOnPublish, {type: 'product'})
     },
   },
 
@@ -385,12 +451,12 @@ const tests = {
 
       const draft = await waitFor(async () => {
         const doc = await lake.doc('drafts.menu-links')
-        return doc?.items[3]?._ref && doc
+        return doc?.items[4]?._ref && doc
       }, 'a weak reference to Journal')
-      assert.equal(draft.items[3]._type, 'weakPage')
-      assert.equal(draft.items[3]._ref, 'page-journal')
-      assert.equal(draft.items[3]._weak, true)
-      assert.equal(draft.items[3]._strengthenOnPublish, undefined)
+      assert.equal(draft.items[4]._type, 'weakPage')
+      assert.equal(draft.items[4]._ref, 'page-journal')
+      assert.equal(draft.items[4]._weak, true)
+      assert.equal(draft.items[4]._strengthenOnPublish, undefined)
     },
   },
 
@@ -414,9 +480,7 @@ const tests = {
       await shoes.getByText('Shoes', {exact: true}).first().click()
       await waitFor(() => page.url().includes('page-shoes'), 'the Shoes page to open in a pane')
       await waitFor(
-        async () =>
-          (await shoes.locator('a [data-selected]').count()) > 0 ||
-          (await shoes.locator('a [data-ui="Button"][data-selected=""]').count()) > 0,
+        async () => (await shoes.locator('a [data-ui="Button"][data-open]').count()) > 0,
         'the row to be selected while its pane is open',
       )
       // Close the pane again: at this width it squeezes the document's own pane
@@ -537,7 +601,10 @@ async function run() {
   const browser = await chromium.launch()
   let failed = 0
 
+  // `E2E_ONLY=<part of a test name>` runs just the matching tests
+  const only = process.env.E2E_ONLY
   for (const [name, entry] of Object.entries(tests)) {
+    if (only && !name.includes(only)) continue
     const {doc: [type, id] = ['menu', 'menu-main'], run: test} =
       typeof entry === 'function' ? {run: entry} : entry
     await lake.reset()

@@ -1,5 +1,5 @@
 import {AddIcon} from '@sanity/icons/Add'
-import {Button, Text} from '@sanity/ui'
+import {Box, Button, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ComponentType, memo, type ReactNode, useCallback, useId} from 'react'
@@ -99,7 +99,7 @@ export function AddChildButton({id, onAdd, types}: AddChildButtonProps): React.J
     <Tooltip
       content={
         <Text muted size={1}>
-          {t('add-child')}
+          {t('add-item')}
         </Text>
       }
       animate
@@ -108,23 +108,26 @@ export function AddChildButton({id, onAdd, types}: AddChildButtonProps): React.J
       portal
     >
       {types.length > 1 ? (
-        <MenuButton
-          id={menuId}
-          button={button}
-          menu={
-            <Menu>
-              {types.map((type) => (
-                <MenuItem
-                  key={type.name}
-                  icon={type.icon}
-                  text={type.title}
-                  onClick={() => onAdd(id, type.name)}
-                />
-              ))}
-            </Menu>
-          }
-          popover={{portal: true, placement: 'bottom-end'}}
-        />
+        // The menu button doesn't pass the tooltip's ref and events on to its button: this does
+        <Box display="inline-block">
+          <MenuButton
+            id={menuId}
+            button={button}
+            menu={
+              <Menu>
+                {types.map((type) => (
+                  <MenuItem
+                    key={type.name}
+                    icon={type.icon}
+                    text={type.title}
+                    onClick={() => onAdd(id, type.name)}
+                  />
+                ))}
+              </Menu>
+            }
+            popover={{portal: true, placement: 'bottom-end'}}
+          />
+        </Box>
       ) : (
         button
       )}

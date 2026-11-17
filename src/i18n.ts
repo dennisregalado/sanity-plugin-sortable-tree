@@ -25,10 +25,6 @@ export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
     'add-child': 'Add nested item',
     /** Tooltip and label for the button that collapses an item's children */
     'collapse': 'Collapse',
-    /** Tooltip and label for the button that expands every item */
-    'expand-all': 'Expand all',
-    /** Tooltip and label for the button that collapses every item */
-    'collapse-all': 'Collapse all',
     /** Tooltip and label for the drag handle */
     'drag-to-reorder': 'Drag to reorder',
     /** Tooltip and label for the button that opens an item */

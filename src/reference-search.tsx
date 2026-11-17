@@ -11,7 +11,7 @@ import {
   useClickOutsideEvent,
 } from '@sanity/ui'
 import {Popover} from '@sanity/ui/popover'
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {useCallback, useEffect, useId, useMemo, useRef, useState} from 'react'
 import {
   createSearch,
   DEFAULT_STUDIO_CLIENT_OPTIONS,
@@ -115,12 +115,6 @@ export function useReferencedType(
   if (!documentId || result?.id !== documentId) return undefined
   return result.type && allowedKey.split('|').includes(result.type) ? result.type : null
 }
-
-/**
- * Like the link picker: keep focus in the input while clicking inside the popover. Otherwise the
- * input's blur would end the search before the click lands.
- */
-const keepInputFocus = (event: React.MouseEvent) => event.preventDefault()
 
 /** The schema's reference `options`: `filter` (a GROQ string or a resolver) and `filterParams` */
 interface ReferenceSearchOptions {
@@ -292,7 +286,6 @@ export function ReferenceSearch({to, options, path, autoFocus, readOnly, onPick,
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
-  const popoverRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const targets = useReferenceTargets(to, options, path, query, open)
   const typeByName = useMemo(() => new Map(to.map((type) => [type.name, type])), [to])
@@ -308,7 +301,27 @@ export function ReferenceSearch({to, options, path, autoFocus, readOnly, onPick,
     onDone()
   }, [onDone])
 
-  useClickOutsideEvent(open && close, () => [container, popoverRef.current])
+  // The whole popover, not just the element its `ref` gets: clicks on its scroll container (and
+  // scrollbar) land outside that one
+  const popoverContentId = useId()
+  const getPopover = () =>
+    document.getElementById(popoverContentId)?.closest<HTMLElement>('[data-ui="Popover"]') ?? null
+  useClickOutsideEvent(open && close, () => [container, getPopover()])
+
+  // Like the link picker: pressing anywhere in the popover (a result, its heading, padding or
+  // scrollbar) keeps focus in the input, so the search stays open. A native listener, since a
+  // press right after the popover opens can miss React's handlers on the portaled popover.
+  useEffect(() => {
+    if (!open) return undefined
+    const keepFocus = (event: MouseEvent) => {
+      const popover = getPopover()
+      if (popover && event.target instanceof Node && popover.contains(event.target)) {
+        event.preventDefault()
+      }
+    }
+    document.addEventListener('mousedown', keepFocus, true)
+    return () => document.removeEventListener('mousedown', keepFocus, true)
+  })
 
   const pick = useCallback(
     (target: ReferenceTarget) => {
@@ -351,7 +364,6 @@ export function ReferenceSearch({to, options, path, autoFocus, readOnly, onPick,
               width="fill"
               padding={1}
               selected={index === active}
-              onMouseDown={keepInputFocus}
               onMouseEnter={() => setActive(index)}
               onClick={() => pick(target)}
             >
@@ -385,7 +397,7 @@ export function ReferenceSearch({to, options, path, autoFocus, readOnly, onPick,
         shadow={3}
         content={
           <Card
-            ref={popoverRef}
+            id={popoverContentId}
             padding={1}
             radius={4}
             style={{width: 340, maxHeight: 'inherit', overflow: 'auto'}}
@@ -427,7 +439,7 @@ export function ReferenceSearch({to, options, path, autoFocus, readOnly, onPick,
         }}
         onBlur={(event) => {
           // Clicks in the popover keep focus in the input; anything else ends the search
-          if (!popoverRef.current?.contains(event.relatedTarget)) close()
+          if (!getPopover()?.contains(event.relatedTarget)) close()
         }}
         onKeyDown={(event) => {
           const count = targets?.length ?? 0

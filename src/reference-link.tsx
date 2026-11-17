@@ -52,8 +52,15 @@ export function ReferenceLinkButton({
   return (
     <Box flex={1} style={{minWidth: 0}}>
       <ReferenceChildLink documentId={documentId} documentType={documentType} parentRefPath={path}>
-        {/* Inside the link, the button is only its look */}
-        <Button {...BUTTON_PROPS} as="span" selected={open}>
+        {/* Inside the link, the button is only its look: primary (blue) while the pane is open, like
+            the Studio's reference input and the color select plugin */}
+        <Button
+          {...BUTTON_PROPS}
+          as="span"
+          mode={open ? 'default' : 'bleed'}
+          tone={open ? 'primary' : 'default'}
+          data-open={open ? '' : undefined}
+        >
           {children}
         </Button>
       </ReferenceChildLink>

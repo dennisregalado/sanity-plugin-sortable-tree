@@ -79,6 +79,12 @@ async function run() {
     await field.getByText(testCase.drag, {exact: true}).first().waitFor({timeout: 180000})
     const renderMs = Date.now() - start
     await page.waitForTimeout(2000)
+    // Long lists show their first items behind "Show all N items": measure the whole tree
+    const showAll = field.getByRole('button', {name: /^Show all \d+ items$/})
+    if (await showAll.count()) {
+      await showAll.first().click()
+      await page.waitForTimeout(2000)
+    }
     if (warm) await warmUp(page, handleOf(field, testCase.drag), testCase.warmUpBy)
 
     await cdp.send('Emulation.setCPUThrottlingRate', {rate: throttling})
