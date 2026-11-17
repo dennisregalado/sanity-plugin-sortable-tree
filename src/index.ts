@@ -7,12 +7,14 @@ import {
 } from 'sanity'
 
 import {SortableTreeInput} from './input'
+import {sortableTreeLocaleNamespace, sortableTreeUsEnglishLocaleBundle} from './i18n'
 import type {SortableTreeArrayOptions} from './options'
 import {TreeErrorBoundary} from './tree-error-boundary'
 
 export {SortableTreeInput}
 export type {Item, FlattenedItem} from './types'
 export type {SortableTreeArrayOptions}
+export {sortableTreeLocaleNamespace}
 
 // Ensure ArrayOptions augmentation is loaded with the plugin
 export type {} from './options'
@@ -38,6 +40,7 @@ export type {} from './options'
 export const sortableTree = definePlugin(() => {
   return {
     name: 'sanity-plugin-sortable-tree',
+    i18n: {bundles: [sortableTreeUsEnglishLocaleBundle]},
     form: {
       components: {
         input: (props: InputProps) => {

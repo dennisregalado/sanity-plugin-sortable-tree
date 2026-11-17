@@ -1,6 +1,9 @@
 import {AddIcon} from '@sanity/icons/Add'
 import {Button} from '@sanity/ui'
 import {memo, useCallback} from 'react'
+import {useTranslation} from 'sanity'
+
+import {sortableTreeLocaleNamespace} from './i18n'
 
 interface Props {
   addItem(parentId: string | null): void
@@ -9,6 +12,7 @@ interface Props {
 }
 
 function NewTreeItemComponent({addItem, disabled = false, parentId = null}: Props) {
+  const {t} = useTranslation(sortableTreeLocaleNamespace)
   const handleClick = useCallback(() => {
     addItem(parentId)
   }, [addItem, parentId])
@@ -18,7 +22,7 @@ function NewTreeItemComponent({addItem, disabled = false, parentId = null}: Prop
       disabled={disabled}
       mode="ghost"
       icon={AddIcon}
-      text="Add item"
+      text={t('add-item')}
       onClick={handleClick}
       width="fill"
       padding={2}

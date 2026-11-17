@@ -2,6 +2,9 @@ import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {DragHandleIcon} from '@sanity/icons/DragHandle'
 import {memo, useMemo} from 'react'
 import type React from 'react'
+import {useTranslation} from 'sanity'
+
+import {sortableTreeLocaleNamespace} from './i18n'
 import {FlattenedItem} from './types'
 import {Box, Button, Card, Flex, Text} from '@sanity/ui'
 
@@ -13,6 +16,7 @@ interface Props {
 }
 
 function TreeItemOverlayComponent({descendants, hasChildren, item, preview}: Props) {
+  const {t} = useTranslation(sortableTreeLocaleNamespace)
   const totalChildren = useMemo(() => {
     return descendants.length + 1
   }, [descendants])
@@ -29,7 +33,7 @@ function TreeItemOverlayComponent({descendants, hasChildren, item, preview}: Pro
         </Box>
         {totalChildren > 1 && (
           <Text muted size={1}>
-            {totalChildren} items
+            {t('item-count', {count: totalChildren})}
           </Text>
         )}
       </Flex>
