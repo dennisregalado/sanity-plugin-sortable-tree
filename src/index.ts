@@ -1,8 +1,14 @@
-import React from 'react'
-import {definePlugin, type ArrayOfObjectsInputProps, type InputProps} from 'sanity'
+import {createElement} from 'react'
+import {
+  type ArrayOfObjectsInputProps,
+  definePlugin,
+  type InputProps,
+  isArrayOfObjectsSchemaType,
+} from 'sanity'
 
 import {SortableTreeInput} from './input'
 import type {SortableTreeArrayOptions} from './options'
+import {TreeErrorBoundary} from './tree-error-boundary'
 
 export {SortableTreeInput}
 export type {Item, FlattenedItem} from './types'
@@ -35,10 +41,16 @@ export const sortableTree = definePlugin(() => {
     form: {
       components: {
         input: (props: InputProps) => {
-          if (props.schemaType?.name === 'array' && props.schemaType?.options?.tree) {
-            return React.createElement(SortableTreeInput, {
-              ...(props as ArrayOfObjectsInputProps),
-            })
+          // Any array of objects with `options.tree`, including named array types
+          if (isArrayOfObjectsSchemaType(props.schemaType) && props.schemaType.options?.tree) {
+            const arrayProps = props as ArrayOfObjectsInputProps
+
+            // If the tree ever throws, fall back to the Studio's default array input
+            return createElement(
+              TreeErrorBoundary,
+              {fallback: () => props.renderDefault(props)},
+              createElement(SortableTreeInput, arrayProps),
+            )
           }
 
           return props.renderDefault(props)
