@@ -43,6 +43,7 @@
     "format": "oxfmt",
     "link-watch": "plugin-kit link-watch",
     "lint": "oxlint",
+    "perf": "node --no-warnings dev/e2e/perf.mjs",
     "prepublishOnly": "npm run build",
     "screenshots": "node --no-warnings dev/e2e/screenshots.mjs",
     "test": "vitest run",

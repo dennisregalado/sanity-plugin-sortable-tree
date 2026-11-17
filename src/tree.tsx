@@ -31,6 +31,8 @@ import {
 import {TreeItem} from './tree-item'
 import {TreeItemOverlay} from './tree-overlay'
 import {FlattenedItem, type Item} from './types'
+import {useCanHover} from './use-can-hover'
+import {useRowWindowing} from './use-row-windowing'
 import {
   flattenTree,
   getDescendants,
@@ -66,6 +68,27 @@ interface TreeRenderNode extends TreeNodePosition {
 
 const COLLAPSE_DURATION_MS = 250
 const NO_ITEMS: FlattenedItem[] = []
+
+const ROW_STYLE: React.CSSProperties = {listStyle: 'none'}
+
+/** Trees with more rows than this only mount the rows near the viewport (see useRowWindowing) */
+const WINDOWING_THRESHOLD = 150
+
+// Row geometry, for placeholder heights of rows that haven't been on screen yet
+const ROW_HEIGHT = 51
+const ROW_GAP = 4
+const ADD_ROW_HEIGHT = 25
+
+/** Estimated height of a row with its (expanded) subtree */
+function estimateHeight(node: TreeRenderNode, collapsedKeys: ReadonlySet<string>): number {
+  if (!node.children.length || collapsedKeys.has(node.id)) return ROW_HEIGHT
+
+  const children = node.children.reduce(
+    (sum, child) => sum + estimateHeight(child, collapsedKeys) + ROW_GAP,
+    0,
+  )
+  return ROW_HEIGHT + ROW_GAP + children + ADD_ROW_HEIGHT
+}
 
 /**
  * Tree ids of the items that must be expanded to show `focusPath` (relative to the root array):
@@ -285,6 +308,7 @@ export function Tree({
   const projectedItemsRef = useRef<FlattenedItem[] | null>(null)
   const manuallyToggledCollapsedKeysRef = useRef<Set<string>>(new Set())
   const toast = useToast()
+  const canHover = useCanHover()
   const {t} = useTranslation(sortableTreeLocaleNamespace)
   const {
     focusPath,
@@ -399,6 +423,12 @@ export function Tree({
   const dragItems = projectedItems ?? baseDragItems
   const renderItems = projectedItems ?? baseRenderItems
   const renderTree = useMemo(() => buildRenderTree(renderItems), [renderItems])
+  const containerRef = useRef<HTMLDivElement>(null)
+  const windowing = useRowWindowing(
+    containerRef,
+    renderItems.length > WINDOWING_THRESHOLD,
+    baseRenderItems.map((item) => item.id),
+  )
   const dragIndexById = useMemo(() => {
     const next = new Map<string, number>()
 
@@ -712,14 +742,26 @@ export function Tree({
       const sortableIndex = dragIndexById.get(node.id) ?? node.index
       const sortableDisabled = disabled || !dragIndexById.has(node.id)
       const isDraggingTree = activeDragItemId === node.id && (dragSource?.children.length ?? 0) > 0
+      // The dragged row (and the rows containing it) stay mounted while dragging
+      const isDragPath =
+        activeDragItemId !== null &&
+        (activeDragItemId === node.id || activeDragItemId.startsWith(`${node.id}/`))
+
+      if (!windowing.isVisible(node.id) && !isDragPath) {
+        return (
+          <li key={`item-${node.id}`} data-tree-id={node.id} style={ROW_STYLE}>
+            <div
+              aria-hidden
+              style={{
+                height: windowing.heightOf(node.id) ?? estimateHeight(node, collapsedKeys),
+              }}
+            />
+          </li>
+        )
+      }
 
       return (
-        <li
-          key={`item-${node.id}`}
-          style={{
-            listStyle: 'none',
-          }}
-        >
+        <li key={`item-${node.id}`} data-tree-id={node.id} style={ROW_STYLE}>
           {member?.kind === 'item' && (
             <TreeItem
               item={{...node, collapsed: isCollapsed}}
@@ -731,6 +773,7 @@ export function Tree({
               onItemOpen={onItemOpen ? handleItemOpen : undefined}
               onRemove={removeDisabled ? undefined : handleRemove}
               sortable={sortable}
+              canHover={canHover}
               callbacks={renderCallbacks}
               // Items without a visible nested "Add item" button (no children yet, or collapsed)
               onAddChild={
@@ -799,9 +842,11 @@ export function Tree({
       optimisticParentId,
       removeDisabled,
       renderCallbacks,
+      canHover,
       sortable,
       t,
       treeMeta,
+      windowing,
     ],
   )
 
@@ -1049,7 +1094,7 @@ export function Tree({
         updateProjectedItems(null)
       }}
     >
-      <Card border padding={1} radius={2}>
+      <Card ref={containerRef} border padding={1} radius={2}>
         <Grid gap={1} as="ul" style={{listStyle: 'none', margin: 0, padding: 0}}>
           {renderTree.length ? (
             renderTree.map((node) => renderTreeNode(node))

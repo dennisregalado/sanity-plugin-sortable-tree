@@ -178,6 +178,35 @@ const tests = {
     },
   },
 
+  'long trees mount rows as they scroll into view': {
+    doc: ['menu', 'menu-big'],
+    run: async (page, field) => {
+      const last = field.getByText('Group 100', {exact: true}).first()
+      // Off-screen rows are placeholders until they come near the viewport: scroll down to it
+      await page.mouse.move(700, 700)
+      for (let i = 0; i < 80 && !(await last.isVisible()); i++) {
+        await page.mouse.wheel(0, 1200)
+        await page.waitForTimeout(150)
+      }
+      assert.ok(await last.isVisible(), 'the last group rendered after scrolling')
+
+      await last.hover()
+      await last
+        .locator('xpath=ancestor::li[1]')
+        .getByRole('button', {name: 'Remove'})
+        .first()
+        .click()
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-big')
+        return doc && doc.items.length === 99 && doc
+      }, 'Group 100 removed')
+      assert.equal(draft.items.at(-1)._key, 'g98')
+      const patches = await sentPatches()
+      assert.ok(patches.some((patch) => patch.unset?.includes('items[_key=="g99"]')))
+    },
+  },
+
   'opens nested items in the Studio dialog': async (page, field) => {
     await field.getByText('Dresses', {exact: true}).first().click()
     const dialog = page.getByRole('dialog').last()
@@ -204,7 +233,7 @@ async function run() {
     const page = await context.newPage()
     await page.goto(`${studioUrl}/structure/${type};${id}`)
     const field = page.locator('[data-testid="field-items"]')
-    await field.getByText('Home', {exact: true}).first().waitFor({timeout: 120000})
+    await field.locator('li').first().waitFor({timeout: 120000})
     await page.waitForTimeout(1500)
 
     try {

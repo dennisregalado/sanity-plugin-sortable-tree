@@ -17,7 +17,6 @@ import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
 import {type AddableType, AddChildButton} from './new-tree-item'
 import {FlattenedItem} from './types'
-import {useCanHover} from './use-can-hover'
 import {collectValidation} from './validation'
 
 export interface Props {
@@ -31,6 +30,8 @@ export interface Props {
   onCollapse?: (id: string) => void
   hasChildren?: boolean
   onItemOpen?: (id: string) => void
+  /** Whether the pointer can hover (false on touch screens): measured once for the whole tree */
+  canHover?: boolean
   /** False hides the drag handle (`options.sortable: false`) */
   sortable?: boolean
   /** Adds a nested item (with the type picked from `childTypes` when there are several) */
@@ -71,6 +72,7 @@ function TreeItemComponent({
   onItemOpen,
   callbacks,
   sortable = true,
+  canHover = true,
   onAddChild,
   childTypes = NO_TYPES,
 }: Props) {
@@ -80,7 +82,6 @@ function TreeItemComponent({
   const [isHovering, setHovering] = useState(false)
   // Keyboard users reach Edit and Remove by tabbing into the row; touch screens can't hover
   const [hasFocus, setHasFocus] = useState(false)
-  const canHover = useCanHover()
   const readOnly = useMemo(() => member?.item?.readOnly, [member])
   const {ref, handleRef, isDragSource, isDragging} = useSortable({
     ...config,
@@ -147,6 +148,8 @@ function TreeItemComponent({
                 </Text>
               }
               animate
+              // No tooltip mid-drag: it would follow the moving handle on every frame
+              disabled={isDragging || isDragSource}
               fallbackPlacements={['right', 'left']}
               placement="top"
               portal
@@ -306,6 +309,7 @@ export const TreeItem = memo(TreeItemComponent, (previous, next) => {
     previous.onItemOpen === next.onItemOpen &&
     previous.callbacks === next.callbacks &&
     previous.sortable === next.sortable &&
+    previous.canHover === next.canHover &&
     previous.onAddChild === next.onAddChild &&
     previous.childTypes === next.childTypes
   )
