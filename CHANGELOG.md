@@ -1,5 +1,11 @@
 # sanity-plugin-sortable-tree
 
+## 2.1.1
+
+### Patch Changes
+
+- 8b88831: Smoother dragging in long trees: rows that stay off-screen jump to their new place instead of sliding, rows whose only change is their position no longer re-render, and the drop no longer forces an extra layout
+
 ## 2.1.0
 
 ### Minor Changes
