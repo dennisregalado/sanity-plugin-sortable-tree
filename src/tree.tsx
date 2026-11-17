@@ -28,7 +28,15 @@ import {
 import {TreeItem} from './tree-item'
 import {TreeItemOverlay} from './tree-overlay'
 import {FlattenedItem, type Item} from './types'
-import {flattenTree, getDescendants, getDragDepth, getProjection, isRecord, walkTree} from './utils'
+import {
+  flattenTree,
+  getDescendants,
+  getDragDepth,
+  getProjection,
+  isRecord,
+  isTreeItem,
+  walkTree,
+} from './utils'
 
 interface Props {
   items: Item[]
@@ -55,6 +63,19 @@ interface TreeRenderNode extends TreeNodePosition {
 
 const COLLAPSE_DURATION_MS = 250
 const NO_ITEMS: FlattenedItem[] = []
+
+/** Whether `children` holds data the tree skips: not an array, items without keys, or repeated keys */
+function hasUnshowableChildren(children: unknown): boolean {
+  if (children === undefined || children === null) return false
+  if (!Array.isArray(children)) return true
+
+  const keys = new Set<string>()
+  for (const child of children) {
+    if (!isTreeItem(child) || keys.has(child._key)) return true
+    keys.add(child._key)
+  }
+  return false
+}
 
 /** The visible title of a draggable row, for screen reader announcements */
 function getRowTitle(element: Element | undefined): string {
@@ -403,6 +424,8 @@ export function Tree({
 
   const treeMeta = useMemo(() => {
     const hasChildren = new Set<string>()
+    // Items with nested data the tree can't show (and won't write to)
+    const hasInvalidChildren = new Set<string>()
     const pathById = new Map<string, Path>()
 
     walkTree(items, (item, id, parentId) => {
@@ -413,9 +436,12 @@ export function Tree({
       if (Array.isArray(item.children) && item.children.length > 0) {
         hasChildren.add(id)
       }
+      if (hasUnshowableChildren(item.children)) {
+        hasInvalidChildren.add(id)
+      }
     })
 
-    return {hasChildren, pathById}
+    return {hasChildren, hasInvalidChildren, pathById}
   }, [items])
 
   const getDestinationArraySchemaType = useCallback(
@@ -645,6 +671,13 @@ export function Tree({
               callbacks={renderCallbacks}
             />
           )}
+          {treeMeta.hasInvalidChildren.has(node.id) && !isDraggingTree && (
+            <Box style={{marginTop: '0.25rem', marginLeft: indentation}}>
+              <Card tone="caution" padding={2} radius={2} border>
+                <Text size={1}>{t('invalid-children')}</Text>
+              </Card>
+            </Box>
+          )}
           {hasChildren && !isDraggingTree && (
             <CollapsibleSubtree open={!isCollapsed || isOptimisticParent}>
               {(subtreeDisabled) => (
@@ -695,6 +728,7 @@ export function Tree({
       removeDisabled,
       renderCallbacks,
       sortable,
+      t,
       treeMeta,
     ],
   )
