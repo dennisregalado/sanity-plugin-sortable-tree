@@ -18,6 +18,9 @@ const LAKE = `https://localhost:${process.env.FAKE_LAKE_PORT || 3334}`
 // The fake lake uses a self-signed certificate
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
+// Distance from one row to the next
+const ROW_PITCH = 49
+
 const cases = [
   {name: 'main menu (11 items)', doc: 'menu-main', drag: 'Contact', rows: 6},
   {name: '500 items', doc: 'menu-big', drag: 'Group 3', rows: 8},
@@ -85,11 +88,13 @@ async function run() {
     await page.waitForTimeout(500)
     await mark('down')
     await page.mouse.down()
-    // Down over `rows` rows (~55px each) and back up, in small steps like a real pointer
-    for (let i = 1; i <= 60; i++) await page.mouse.move(x + 5, y + (i / 60) * testCase.rows * 55)
-    for (let i = 59; i >= 0; i--) await page.mouse.move(x + 5, y + (i / 60) * testCase.rows * 55)
+    // Down over `rows` rows (~49px each: a 45px row and the 4px gap) and back up, in small steps like a real pointer
+    for (let i = 1; i <= 60; i++)
+      await page.mouse.move(x + 5, y + (i / 60) * testCase.rows * ROW_PITCH)
+    for (let i = 59; i >= 0; i--)
+      await page.mouse.move(x + 5, y + (i / 60) * testCase.rows * ROW_PITCH)
     // Drop one row lower than it started, so the drop writes a change
-    await page.mouse.move(x + 5, y + 55)
+    await page.mouse.move(x + 5, y + ROW_PITCH)
     await page.waitForTimeout(300)
     await mark('drop')
     await page.mouse.up()

@@ -71,7 +71,7 @@ const scenarios = {
   'main-focus': {
     url: docUrl('menu', 'menu-main'),
     async act(page, field) {
-      // Tab from the drag handle to the row's main button, like a keyboard user
+      // Tab from the drag handle past the chevron to the item, like a keyboard user
       const row = field.getByText('Shop', {exact: true}).first().locator('xpath=ancestor::li[1]')
       await row.locator('button').first().focus()
       await page.keyboard.press('Tab')
@@ -120,6 +120,17 @@ const scenarios = {
       await page.waitForTimeout(600)
     },
   },
+  'main-menu': {
+    url: docUrl('menu', 'menu-main'),
+    viewport: true,
+    async act(page, field) {
+      // The item menu of a nested row
+      const row = field.getByText('Women', {exact: true}).first().locator('xpath=ancestor::li[1]')
+      await row.getByTestId('array-item-menu-button').first().click()
+      await page.getByRole('menuitem').first().waitFor()
+      await page.waitForTimeout(400)
+    },
+  },
   'empty': {url: docUrl('menu', 'menu-empty')},
   'validation': {url: docUrl('menu', 'menu-validation')},
   'validation-collapsed': {
@@ -140,6 +151,15 @@ const scenarios = {
     },
   },
   'readonly': {url: docUrl('readOnlyMenu', 'menu-readonly')},
+  'readonly-dialog': {
+    url: docUrl('readOnlyMenu', 'menu-readonly'),
+    viewport: true,
+    async act(page, field) {
+      await field.getByText('Women', {exact: true}).first().click()
+      await page.getByRole('dialog').first().waitFor()
+      await page.waitForTimeout(600)
+    },
+  },
   'named': {url: docUrl('namedMenu', 'menu-named')},
   'mixed': {url: docUrl('mixedMenu', 'menu-mixed')},
   'mixed-menu': {
