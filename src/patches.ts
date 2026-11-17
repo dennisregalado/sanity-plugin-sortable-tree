@@ -125,3 +125,15 @@ function isSamePath(a: Path, b: Path): boolean {
     })
   )
 }
+
+/** What an input's `onChange` receives: a patch, a list of patches, or a patch event */
+export type PatchInput = FormPatch | FormPatch[] | {patches: FormPatch[]}
+
+/**
+ * The patches from an item input's `onChange`, made relative to the root array: `itemPath` is
+ * the item's path in the tree (e.g. `[{_key: 'a'}, 'children', {_key: 'b'}]`)
+ */
+export function prefixItemPatches(input: PatchInput, itemPath: Path): FormPatch[] {
+  const patches = Array.isArray(input) ? input : 'patches' in input ? input.patches : [input]
+  return patches.map((patch) => Object.assign({}, patch, {path: [...itemPath, ...patch.path]}))
+}

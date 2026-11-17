@@ -10,13 +10,16 @@ import {WarningOutlineIcon} from '@sanity/icons/WarningOutline'
 import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
 import {Tooltip} from '@sanity/ui/tooltip'
 import type React from 'react'
-import {memo, useMemo, useState} from 'react'
-import {type ArrayOfObjectsItemMember, useTranslation} from 'sanity'
+import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {type ArrayOfObjectsItemMember, type Path, type SchemaType, useTranslation} from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
-import {MemberPreview, type RenderCallbacks} from './member-preview'
+import {MemberPreview, type RenderCallbacks, type RowFocus} from './member-preview'
 import {type AddableType, AddChildButton} from './new-tree-item'
+import type {PatchInput} from './patches'
+import {ReferenceValue} from './reference-value'
 import {FlattenedItem} from './types'
+import {isReferenceType} from './utils'
 import {collectValidation} from './validation'
 
 export interface Props {
@@ -30,6 +33,10 @@ export interface Props {
   onCollapse?: (id: string) => void
   hasChildren?: boolean
   onItemOpen?: (id: string) => void
+  /** Focus the reference search once it shows (for a reference that was just added) */
+  autoFocusSearch?: boolean
+  /** Applies patches from an input shown in the row (relative to the item) */
+  onItemPatch?: (id: string, patches: PatchInput) => void
   /** Whether the pointer can hover (false on touch screens): measured once for the whole tree */
   canHover?: boolean
   /** False hides the drag handle (`options.sortable: false`) */
@@ -41,6 +48,8 @@ export interface Props {
 
 const SORTABLE_PLUGINS: PluginConstructor[] = []
 const NO_TYPES: AddableType[] = []
+const NO_PATH: Path = []
+const REF_PATH: Path = ['_ref']
 
 const config = {
   alignment: {
@@ -86,6 +95,8 @@ function TreeItemComponent({
   onRemove,
   onCollapse,
   onItemOpen,
+  onItemPatch,
+  autoFocusSearch = false,
   callbacks,
   sortable = true,
   canHover = true,
@@ -117,6 +128,64 @@ function TreeItemComponent({
   const errors = validation.filter((marker) => marker.level === 'error')
   const warnings = validation.filter((marker) => marker.level === 'warning')
   const shownMarkers = errors.length ? errors : warnings
+  // References are edited in the row itself, with the Studio's reference search (no dialog)
+  const isReference = isReferenceType(member.item.schemaType)
+  const referenceId = isReference ? getReferenceId(member.item.value) : undefined
+  // "Replace" (or focusing the search of an empty reference) is the row's own state: see RowFocus
+  const [referenceFocusPath, setReferenceFocusPath] = useState<Path>(NO_PATH)
+  const handleReferenceFocus = useCallback((path: Path) => {
+    // Focusing `_ref` keeps the search open; anything else (picked, Escape, clicked outside) ends it
+    setReferenceFocusPath(path.length === 1 && path[0] === '_ref' ? REF_PATH : NO_PATH)
+  }, [])
+  const handleInputChange = useCallback(
+    (patches: PatchInput) => onItemPatch?.(id, patches),
+    [id, onItemPatch],
+  )
+  const rowFocus = useMemo<RowFocus>(
+    () => ({
+      focusPath: referenceFocusPath,
+      onPathFocus: handleReferenceFocus,
+      onChange: handleInputChange,
+    }),
+    [handleInputChange, handleReferenceFocus, referenceFocusPath],
+  )
+  const editingReference = isReference && (!referenceId || referenceFocusPath.length > 0)
+  const referenceSearchRef = useRef<HTMLDivElement>(null)
+  const focusSearchRef = useRef(false)
+  // References open their search in the row; other items open in the Studio's dialog
+  const handleOpen = useCallback(() => {
+    if (!isReference) {
+      onItemOpen?.(id)
+      return
+    }
+    focusSearchRef.current = true
+    setReferenceFocusPath(REF_PATH)
+  }, [id, isReference, onItemOpen])
+  // The Studio's reference input only focuses itself when `_ref` gets focus after it mounts: focus
+  // its search once it's there. For a picked reference, wait until it shows the document's title
+  // (it fills that in once loaded, over anything typed before), then select it so typing replaces
+  // it, as the "Replace" action says.
+  const autoFocusedRef = useRef(false)
+  const waitForTitle = referenceId !== undefined
+  useEffect(() => {
+    const autoFocus = autoFocusSearch && !autoFocusedRef.current
+    if (!editingReference || !(focusSearchRef.current || autoFocus)) return undefined
+    focusSearchRef.current = false
+    autoFocusedRef.current = autoFocusedRef.current || autoFocusSearch
+    let frame = 0
+    let tries = 0
+    const focusInput = () => {
+      const input = referenceSearchRef.current?.querySelector<HTMLInputElement>('input')
+      if (input && (input.value || !waitForTitle || tries > 60)) {
+        input.focus()
+        input.select()
+      } else if (tries++ < 120) {
+        frame = requestAnimationFrame(focusInput)
+      }
+    }
+    focusInput()
+    return () => cancelAnimationFrame(frame)
+  }, [autoFocusSearch, editingReference, referenceFocusPath, waitForTitle])
 
   return (
     <div ref={ref}>
@@ -187,21 +256,41 @@ function TreeItemComponent({
               />
             </Tooltip>
           )}
-          <Button
-            disabled={isDisabled}
-            style={{minHeight: 32}}
-            width="fill"
-            mode="bleed"
-            padding={1}
-            paddingX={2}
-            onClick={() => onItemOpen?.(id)}
-          >
-            <Flex align="center" justify="space-between" style={{width: '100%'}}>
-              <Box style={{marginLeft: -8}}>
-                <MemberPreview member={member} callbacks={callbacks} />
-              </Box>
-            </Flex>
-          </Button>
+          {editingReference && !isDisabled ? (
+            // Like the Studio's array item for a reference: its title above the reference search
+            <Stack ref={referenceSearchRef} flex={1} gap={3} padding={2} style={{minWidth: 0}}>
+              <Text size={1} weight="medium">
+                {member.item.schemaType.title || member.item.schemaType.name}
+              </Text>
+              <MemberPreview member={member} callbacks={callbacks} rowFocus={rowFocus} />
+            </Stack>
+          ) : referenceId ? (
+            <Box flex={1} paddingX={1} style={{minWidth: 0}}>
+              <ReferenceValue
+                documentId={referenceId}
+                to={getReferenceTargets(member.item.schemaType)}
+                path={member.item.path}
+                disabled={isDisabled}
+                onReplace={handleOpen}
+              />
+            </Box>
+          ) : (
+            <Button
+              disabled={isDisabled}
+              style={{minHeight: 32}}
+              width="fill"
+              mode="bleed"
+              padding={1}
+              paddingX={2}
+              onClick={() => onItemOpen?.(id)}
+            >
+              <Flex align="center" justify="space-between" style={{width: '100%'}}>
+                <Box style={{marginLeft: -8, minWidth: 0}}>
+                  <MemberPreview member={member} callbacks={callbacks} />
+                </Box>
+              </Flex>
+            </Button>
+          )}
           {shownMarkers.length > 0 && (
             <Tooltip
               content={
@@ -237,14 +326,14 @@ function TreeItemComponent({
                 mode="bleed"
                 padding={2}
                 tone={errors.length ? 'critical' : 'caution'}
-                onClick={() => onItemOpen?.(id)}
+                onClick={handleOpen}
               />
             </Tooltip>
           )}
           {onAddChild && showActions && (
             <AddChildButton id={id} onAdd={onAddChild} types={childTypes} />
           )}
-          {showActions && (
+          {showActions && !isReference && (
             <Tooltip
               content={
                 <Text muted size={1}>
@@ -293,6 +382,26 @@ function TreeItemComponent({
   )
 }
 
+/** The document types a reference schema type can point to (from its own or a base type's `to`) */
+function getReferenceTargets(schemaType: unknown): SchemaType[] {
+  let type: unknown = schemaType
+  for (let depth = 0; typeof type === 'object' && type !== null && depth < 20; depth++) {
+    if (hasReferenceTargets(type)) return type.to
+    type = 'type' in type ? type.type : undefined
+  }
+  return []
+}
+
+function hasReferenceTargets(type: object): type is {to: SchemaType[]} {
+  return 'to' in type && Array.isArray(type.to)
+}
+
+function getReferenceId(value: unknown): string | undefined {
+  const ref =
+    typeof value === 'object' && value !== null && '_ref' in value ? value._ref : undefined
+  return typeof ref === 'string' && ref ? ref : undefined
+}
+
 export const TreeItem = memo(TreeItemComponent, (previous, next) => {
   return (
     previous.item.id === next.item.id &&
@@ -306,6 +415,8 @@ export const TreeItem = memo(TreeItemComponent, (previous, next) => {
     previous.onRemove === next.onRemove &&
     previous.onCollapse === next.onCollapse &&
     previous.onItemOpen === next.onItemOpen &&
+    previous.onItemPatch === next.onItemPatch &&
+    previous.autoFocusSearch === next.autoFocusSearch &&
     previous.callbacks === next.callbacks &&
     previous.sortable === next.sortable &&
     previous.canHover === next.canHover &&
