@@ -1,0 +1,360 @@
+diff --git a/src/input.tsx b/src/input.tsx
+index 74c9a1b..fff1dec 100644
+--- a/src/input.tsx
++++ b/src/input.tsx
+@@ -1,4 +1,4 @@
+-import {Box, Stack} from '@sanity/ui'
++import {Stack} from '@sanity/ui'
+ import {useCallback, useMemo} from 'react'
+ import {type ArrayOfObjectsInputProps, type FormPatch, type Path} from 'sanity'
+ 
+@@ -46,22 +46,6 @@ export function SortableTreeInput(props: ArrayOfObjectsInputProps): React.JSX.El
+         onPatch={handlePatch}
+         onItemOpen={handleItemOpen}
+       />
+-      <Box
+-        aria-hidden
+-        style={{
+-          position: 'absolute',
+-          left: 0,
+-          top: 0,
+-          width: 1,
+-          height: 1,
+-          overflow: 'hidden',
+-          clipPath: 'inset(50%)',
+-          whiteSpace: 'nowrap',
+-          pointerEvents: 'none',
+-        }}
+-      >
+-        {props.renderDefault(props)}
+-      </Box>
+     </Stack>
+   )
+ }
+diff --git a/src/member-preview.tsx b/src/member-preview.tsx
+index 584de7b..96cf906 100644
+--- a/src/member-preview.tsx
++++ b/src/member-preview.tsx
+@@ -1,8 +1,9 @@
+-import {memo, useMemo} from 'react'
++import {createContext, memo, useContext, useMemo} from 'react'
+ import {
+   ArrayOfObjectsItem,
+   type ArrayOfObjectsItemMember,
+   type ItemProps,
++  type ObjectItemProps,
+   type PreviewProps,
+   type RenderAnnotationCallback,
+   type RenderArrayOfObjectsItemCallback,
+@@ -74,3 +75,71 @@ export const MemberPreview = memo(function MemberPreview({member, callbacks}: Me
+ 
+   return <ArrayOfObjectsItem member={previewMember} {...callbacks} />
+ })
++
++/** What a native tree row needs from the tree, which owns the item's real path in the tree */
++export interface TreeRowActions {
++  /** Only root rows host the edit dialog; nested items open through their root ancestor's dialog */
++  isRoot: boolean
++  onOpen: () => void
++  onRemove: () => void
++  /** Inserts siblings next to the item (duplicate, insert before/after) */
++  onInsert: (items: unknown[], position: 'before' | 'after') => void
++}
++
++export const TreeRowContext = createContext<TreeRowActions | null>(null)
++
++const NO_SORT = new WeakMap<object, unknown>()
++
++/** The array type without the Studio's own drag handle (the tree draws its own) */
++function withoutSortable<T extends {options?: unknown}>(type: T): T {
++  let next = NO_SORT.get(type) as T | undefined
++  if (!next) {
++    next = {...type, options: {...(type.options as object), sortable: false}}
++    NO_SORT.set(type, next)
++  }
++  return next
++}
++
++/** The Studio's own item (card, presence, validation, menu, edit dialog), with the tree's actions */
++function TreeNativeItem(props: ItemProps) {
++  const row = useContext(TreeRowContext)
++  if (!row || !('parentSchemaType' in props) || !('onInsert' in props)) {
++    return props.renderDefault(props)
++  }
++  const objectProps = props as ObjectItemProps
++  return objectProps.renderDefault({
++    ...objectProps,
++    parentSchemaType: withoutSortable(objectProps.parentSchemaType),
++    open: row.isRoot && objectProps.open,
++    onOpen: row.onOpen,
++    onRemove: row.onRemove,
++    onInsert: (event: Parameters<ObjectItemProps['onInsert']>[0]) =>
++      row.onInsert(event.items, event.position),
++  })
++}
++
++/** An array member rendered as a real Studio array item */
++export const NativeMemberItem = memo(function NativeMemberItem({
++  member,
++  callbacks,
++}: MemberPreviewProps) {
++  const nativeMember = useMemo(
++    () => ({
++      ...member,
++      item: {
++        ...member.item,
++        schemaType: {
++          ...member.item.schemaType,
++          components: {
++            ...member.item.schemaType.components,
++            item: TreeNativeItem,
++            preview: TreeItemPreview,
++          },
++        },
++      },
++    }),
++    [member],
++  )
++
++  return <ArrayOfObjectsItem member={nativeMember} {...callbacks} />
++})
+diff --git a/src/tree-item.tsx b/src/tree-item.tsx
+index 7924d79..c4f1f48 100644
+--- a/src/tree-item.tsx
++++ b/src/tree-item.tsx
+@@ -14,7 +14,7 @@ import {memo, useMemo, useState} from 'react'
+ import {type ArrayOfObjectsItemMember, useTranslation} from 'sanity'
+ 
+ import {sortableTreeLocaleNamespace} from './i18n'
+-import {MemberPreview, type RenderCallbacks} from './member-preview'
++import {NativeMemberItem, type RenderCallbacks, type TreeRowActions, TreeRowContext} from './member-preview'
+ import {type AddableType, AddChildButton} from './new-tree-item'
+ import {FlattenedItem} from './types'
+ import {useCanHover} from './use-can-hover'
+@@ -36,6 +36,8 @@ export interface Props {
+   /** Adds a nested item (with the type picked from `childTypes` when there are several) */
+   onAddChild?: (id: string, typeName?: string) => void
+   childTypes?: AddableType[]
++  /** Inserts siblings of the item (the native menu's duplicate and insert before/after) */
++  onInsert?: (id: string, items: unknown[], position: 'before' | 'after') => void
+ }
+ 
+ const SORTABLE_PLUGINS: PluginConstructor[] = []
+@@ -73,6 +75,7 @@ function TreeItemComponent({
+   sortable = true,
+   onAddChild,
+   childTypes = NO_TYPES,
++  onInsert,
+ }: Props) {
+   const {id, collapsed, depth, parentId} = item
+   const {t} = useTranslation(sortableTreeLocaleNamespace)
+@@ -94,6 +97,15 @@ function TreeItemComponent({
+   })
+ 
+   const isDisabled = disabled || readOnly
++  const rowActions = useMemo<TreeRowActions>(
++    () => ({
++      isRoot: parentId === null,
++      onOpen: () => onItemOpen?.(id),
++      onRemove: () => onRemove?.(id),
++      onInsert: (items, position) => onInsert?.(id, items, position),
++    }),
++    [id, onInsert, onItemOpen, onRemove, parentId],
++  )
+   const showActions = !isDisabled && (isHovering || hasFocus || !canHover)
+   // Errors and warnings in the item's fields; a collapsed item also shows its hidden children's
+   const validation = useMemo(() => collectValidation(member.item, collapsed), [member, collapsed])
+@@ -115,20 +127,9 @@ function TreeItemComponent({
+       aria-hidden={isDragSource}
+     >
+       <Card
+-        padding={1}
++        padding={0}
+         radius={2}
+-        border
+-        // Like the Studio's array items: invalid rows take the critical (or caution) tone
+-        tone={
+-          isDragging
+-            ? 'suggest'
+-            : errors.length
+-              ? 'critical'
+-              : warnings.length
+-                ? 'caution'
+-                : 'default'
+-        }
+-        style={isHovering ? undefined : HIDDEN_BORDER_STYLE}
++        tone={isDragging ? 'suggest' : 'default'}
+         shadow={!isHovering && isDragging ? 5 : 0}
+         onMouseEnter={() => setHovering(true)}
+         onMouseLeave={() => setHovering(false)}
+@@ -185,106 +186,14 @@ function TreeItemComponent({
+               />
+             </Tooltip>
+           )}
+-          <Button
+-            disabled={isDisabled}
+-            style={{minHeight: 32}}
+-            width="fill"
+-            mode="bleed"
+-            padding={1}
+-            paddingX={2}
+-            onClick={() => onItemOpen?.(id)}
+-          >
+-            <Flex align="center" justify="space-between" style={{width: '100%'}}>
+-              <Box style={{marginLeft: -8}}>
+-                <MemberPreview member={member} callbacks={callbacks} />
+-              </Box>
+-            </Flex>
+-          </Button>
+-          {shownMarkers.length > 0 && (
+-            <Tooltip
+-              content={
+-                <Stack gap={3} padding={1}>
+-                  {shownMarkers.slice(0, 5).map((marker) => (
+-                    <Flex
+-                      key={`${marker.message}-${JSON.stringify(marker.path)}`}
+-                      align="center"
+-                      gap={2}
+-                    >
+-                      <Card tone={marker.level === 'error' ? 'critical' : 'caution'}>
+-                        <Text size={1}>
+-                          {marker.level === 'error' ? <ErrorOutlineIcon /> : <WarningOutlineIcon />}
+-                        </Text>
+-                      </Card>
+-                      <Text size={1}>{marker.message}</Text>
+-                    </Flex>
+-                  ))}
+-                </Stack>
+-              }
+-              animate
+-              fallbackPlacements={['right', 'left']}
+-              placement="top"
+-              portal
+-            >
+-              <Button
+-                aria-label={
+-                  errors.length
+-                    ? t('validation.errors', {count: errors.length})
+-                    : t('validation.warnings', {count: warnings.length})
+-                }
+-                icon={errors.length ? ErrorOutlineIcon : WarningOutlineIcon}
+-                mode="bleed"
+-                padding={2}
+-                tone={errors.length ? 'critical' : 'caution'}
+-                onClick={() => onItemOpen?.(id)}
+-              />
+-            </Tooltip>
+-          )}
++          <Box flex={1} style={{minWidth: 0}}>
++            <TreeRowContext.Provider value={rowActions}>
++              <NativeMemberItem member={member} callbacks={callbacks} />
++            </TreeRowContext.Provider>
++          </Box>
+           {onAddChild && showActions && (
+             <AddChildButton id={id} onAdd={onAddChild} types={childTypes} />
+           )}
+-          {showActions && (
+-            <Tooltip
+-              content={
+-                <Text muted size={1}>
+-                  {t('edit')}
+-                </Text>
+-              }
+-              animate
+-              fallbackPlacements={['right', 'left']}
+-              placement="top"
+-              portal
+-            >
+-              <Button
+-                aria-label={t('edit')}
+-                onClick={() => onItemOpen?.(id)}
+-                icon={EditIcon}
+-                mode="bleed"
+-                padding={2}
+-              />
+-            </Tooltip>
+-          )}
+-          {onRemove && showActions && (
+-            <Tooltip
+-              content={
+-                <Text muted size={1}>
+-                  {t('remove')}
+-                </Text>
+-              }
+-              animate
+-              fallbackPlacements={['right', 'left']}
+-              placement="top"
+-              portal
+-            >
+-              <Button
+-                aria-label={t('remove')}
+-                mode="bleed"
+-                padding={2}
+-                icon={TrashIcon}
+-                tone="critical"
+-                onClick={() => onRemove(id)}
+-              />
+-            </Tooltip>
+-          )}
+         </Flex>
+       </Card>
+     </div>
+@@ -307,6 +216,7 @@ export const TreeItem = memo(TreeItemComponent, (previous, next) => {
+     previous.callbacks === next.callbacks &&
+     previous.sortable === next.sortable &&
+     previous.onAddChild === next.onAddChild &&
+-    previous.childTypes === next.childTypes
++    previous.childTypes === next.childTypes &&
++    previous.onInsert === next.onInsert
+   )
+ })
+diff --git a/src/tree.tsx b/src/tree.tsx
+index ef39e61..1a8a9c3 100644
+--- a/src/tree.tsx
++++ b/src/tree.tsx
+@@ -13,6 +13,7 @@ import {
+   type ArrayOfObjectsInputProps,
+   type ArrayOfObjectsMember,
+   type FormPatch,
++  insert,
+   type Path,
+   setIfMissing,
+   useTranslation,
+@@ -635,6 +636,21 @@ export function Tree({
+     ],
+   )
+ 
++  // The native item menu's duplicate and insert before/after, at the item's real path in the tree
++  const handleInsertSibling = useCallback(
++    (id: string, newItems: unknown[], position: 'before' | 'after') => {
++      updateProjectedItems(null)
++      const itemPath = treeMeta.pathById.get(id)
++      const first = newItems[0]
++      if (!itemPath || !isTreeItem(first)) return
++
++      onPatch([insert(newItems.filter(isTreeItem), position, itemPath)])
++      const newPath = [...itemPath.slice(0, -1), {_key: first._key}]
++      onItemOpen?.(newPath)
++    },
++    [onItemOpen, onPatch, treeMeta, updateProjectedItems],
++  )
++
+   const handleItemOpen = useCallback(
+     (id: string) => {
+       if (!onItemOpen) return
+@@ -730,6 +746,7 @@ export function Tree({
+               onCollapse={handleCollapse}
+               onItemOpen={onItemOpen ? handleItemOpen : undefined}
+               onRemove={removeDisabled ? undefined : handleRemove}
++              onInsert={handleInsertSibling}
+               sortable={sortable}
+               callbacks={renderCallbacks}
+               // Items without a visible nested "Add item" button (no children yet, or collapsed)
+@@ -790,6 +807,7 @@ export function Tree({
+       dragIndexById,
+       handleAddItem,
+       handleCollapse,
++      handleInsertSibling,
+       handleItemOpen,
+       handleRemove,
+       indentation,
