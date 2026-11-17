@@ -147,13 +147,16 @@ function TreeItemComponent({
   const searching = isReference && (!referenceId || replacing)
   // Leaving the search of a reference that was just added, without picking, removes it again (like
   // the Studio's array input does with an empty new item)
+  // The search unmounts with focus in it, without a blur event for the row: reset its focus state
   const handleSearchDone = useCallback(() => {
     setReplacing(false)
+    setHasFocus(false)
     if (!referenceId && autoFocusSearch) onRemove?.(id)
   }, [autoFocusSearch, id, onRemove, referenceId])
   const handlePick = useCallback(
     (target: ReferenceTarget) => {
       setReplacing(false)
+      setHasFocus(false)
       onItemPatch?.(id, getReferencePatches(target, member.item.schemaType))
     },
     [id, member.item.schemaType, onItemPatch],
@@ -174,7 +177,13 @@ function TreeItemComponent({
         tone={errors.length ? 'critical' : warnings.length ? 'caution' : 'default'}
         style={isDragging ? LIFTED_STYLE : isHovering ? undefined : HIDDEN_BORDER_STYLE}
         shadow={0}
-        onMouseEnter={() => setHovering(true)}
+        // Only the row itself: React also sends these for portals rendered inside it (the reference
+        // search's popover), which can close under the pointer without a mouseleave
+        onMouseEnter={(event) => {
+          if (event.target instanceof Node && event.currentTarget.contains(event.target)) {
+            setHovering(true)
+          }
+        }}
         onMouseLeave={() => setHovering(false)}
         // Only keyboard focus: a mouse click also focuses the button it lands on
         onFocus={(event) => setHasFocus(event.target.matches(':focus-visible'))}
