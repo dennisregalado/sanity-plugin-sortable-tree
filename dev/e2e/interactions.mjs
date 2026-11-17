@@ -233,6 +233,42 @@ const tests = {
     },
   },
 
+  'reorders a long tree with the pointer, twice in a row': {
+    doc: ['menu', 'menu-big'],
+    run: async (page, field) => {
+      // Drags a root row up to just above another root row. Rows whose index shifted during the
+      // first drag aren't re-rendered for it, so the second drag checks they still work.
+      const dragAbove = async (title, targetTitle) => {
+        const handle = rowOf(field, title).locator('button').first()
+        const from = await handle.boundingBox()
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+        await page.mouse.down()
+        await page.mouse.move(from.x + from.width / 2, from.y - 10, {steps: 5})
+        const to = await rowOf(field, targetTitle).locator('button').first().boundingBox()
+        await page.mouse.move(from.x + from.width / 2, to.y + 4, {steps: 20})
+        await page.waitForTimeout(300)
+        await page.mouse.up()
+        await page.waitForTimeout(600)
+      }
+
+      await dragAbove('Group 3', 'Group 1')
+      await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-big')
+        return doc && keys(doc.items)[0] === 'g2'
+      }, 'Group 3 moved to the top')
+
+      await dragAbove('Group 2', 'Group 3')
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-big')
+        return doc && keys(doc.items)[0] === 'g1' && doc
+      }, 'Group 2 moved to the top')
+
+      assert.deepEqual(keys(draft.items).slice(0, 5), ['g1', 'g2', 'g0', 'g3', 'g4'])
+      assert.equal(draft.items.length, 100)
+      assert.deepEqual(keys(draft.items[0].children), ['g1a', 'g1b'])
+    },
+  },
+
   'adds a reference and picks a page in the row': {
     doc: PAGES,
     run: async (page, field) => {

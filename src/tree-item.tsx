@@ -409,7 +409,10 @@ export const TreeItem = memo(TreeItemComponent, (previous, next) => {
     previous.item.depth === next.item.depth &&
     previous.item.collapsed === next.item.collapsed &&
     previous.member === next.member &&
-    previous.index === next.index &&
+    // Not `index`: rows after a moved row shift index on every projection change, and re-rendering
+    // them all is the biggest React cost of a drag in a long tree. dnd-kit only uses a sortable's
+    // index for its sortable plugins, its index transition and `move()`, which the tree doesn't use
+    // (see `config`), so a stale index is harmless.
     previous.disabled === next.disabled &&
     previous.hasChildren === next.hasChildren &&
     previous.onRemove === next.onRemove &&
