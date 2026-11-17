@@ -27,6 +27,7 @@ import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
 import {type AddableType, AddChildButton} from './new-tree-item'
 import type {PatchInput} from './patches'
+import {ReferenceLinkButton} from './reference-link'
 import {
   ReferenceSearch,
   type ReferenceTarget,
@@ -179,6 +180,38 @@ function TreeItemComponent({
     else onItemOpen?.(id)
   }, [id, isReference, onItemOpen])
 
+  const rowContent = (
+    <Flex align="center" justify="space-between" style={{width: '100%'}}>
+      {referenceId && referencedType === null ? (
+        // As tall as a preview, so the row is the same size as the others
+        <Flex align="center" style={UNAVAILABLE_STYLE}>
+          <Text muted size={1} textOverflow="ellipsis">
+            {t('reference.unavailable')}
+          </Text>
+        </Flex>
+      ) : referenceId ? (
+        <Box flex={1} style={{marginLeft: -8, minWidth: 0}}>
+          {referencedType && referencedSchemaType ? (
+            <SearchResultItemPreview
+              documentId={referenceId}
+              documentType={referencedType}
+              layout="compact"
+              perspective={perspective.perspectiveStack}
+              schemaType={referencedSchemaType}
+              showBadge={false}
+            />
+          ) : (
+            <SanityDefaultPreview isPlaceholder layout="compact" />
+          )}
+        </Box>
+      ) : (
+        <Box style={{marginLeft: -8, minWidth: 0}}>
+          <MemberPreview member={member} callbacks={callbacks} />
+        </Box>
+      )}
+    </Flex>
+  )
+
   return (
     <div ref={ref}>
       <Card
@@ -263,9 +296,20 @@ function TreeItemComponent({
               onPick={handlePick}
               onDone={handleSearchDone}
             />
+          ) : // A picked reference sits in the row like any other item, showing the referenced
+          // document's preview with its status, like the color select plugin's preset reference
+          referenceId && referencedType && referencedSchemaType ? (
+            // Opens the referenced document in a pane, selected while it's open
+            <ReferenceLinkButton
+              documentId={referenceId}
+              documentType={referencedType}
+              path={member.item.path}
+              disabled={isDisabled}
+              onClick={handleOpen}
+            >
+              {rowContent}
+            </ReferenceLinkButton>
           ) : (
-            // A picked reference sits in the row like any other item, showing the referenced
-            // document's preview with its status, like the color select plugin's preset reference
             <Button
               disabled={isDisabled}
               style={{minHeight: 32}}
@@ -275,35 +319,7 @@ function TreeItemComponent({
               paddingX={2}
               onClick={handleOpen}
             >
-              <Flex align="center" justify="space-between" style={{width: '100%'}}>
-                {referenceId && referencedType === null ? (
-                  // As tall as a preview, so the row is the same size as the others
-                  <Flex align="center" style={UNAVAILABLE_STYLE}>
-                    <Text muted size={1} textOverflow="ellipsis">
-                      {t('reference.unavailable')}
-                    </Text>
-                  </Flex>
-                ) : referenceId ? (
-                  <Box flex={1} style={{marginLeft: -8, minWidth: 0}}>
-                    {referencedType && referencedSchemaType ? (
-                      <SearchResultItemPreview
-                        documentId={referenceId}
-                        documentType={referencedType}
-                        layout="compact"
-                        perspective={perspective.perspectiveStack}
-                        schemaType={referencedSchemaType}
-                        showBadge={false}
-                      />
-                    ) : (
-                      <SanityDefaultPreview isPlaceholder layout="compact" />
-                    )}
-                  </Box>
-                ) : (
-                  <Box style={{marginLeft: -8, minWidth: 0}}>
-                    <MemberPreview member={member} callbacks={callbacks} />
-                  </Box>
-                )}
-              </Flex>
+              {rowContent}
             </Button>
           )}
           {shownMarkers.length > 0 && (

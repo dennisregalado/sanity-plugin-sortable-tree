@@ -410,15 +410,23 @@ const tests = {
     doc: PAGES,
     run: async (page, field) => {
       const shoes = rowOf(field, 'Shoes')
-      // Escape leaves the search and keeps the reference
+      // Clicking the row opens the page in a pane to the right, and the row shows it's open
       await shoes.getByText('Shoes', {exact: true}).first().click()
+      await waitFor(() => page.url().includes('page-shoes'), 'the Shoes page to open in a pane')
       await waitFor(
-        () =>
-          page.evaluate(
-            () => document.activeElement?.getAttribute('aria-label') === 'Search for a reference',
-          ),
-        'clicking the row to open its search',
+        async () =>
+          (await shoes.locator('a [data-selected]').count()) > 0 ||
+          (await shoes.locator('a [data-ui="Button"][data-selected=""]').count()) > 0,
+        'the row to be selected while its pane is open',
       )
+      // Close the pane again: at this width it squeezes the document's own pane
+      await page.goBack()
+      await waitFor(() => !page.url().includes('page-shoes'), 'the Shoes pane to close')
+      await page.mouse.move(1, 1)
+
+      // Escape leaves the search and keeps the reference
+      await shoes.getByText('Shoes', {exact: true}).first().hover()
+      await shoes.getByRole('button', {name: 'Replace reference'}).click()
       await page.keyboard.press('Escape')
       await shoes.getByText('Shoes', {exact: true}).first().waitFor()
 

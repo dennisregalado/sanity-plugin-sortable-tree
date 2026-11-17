@@ -185,16 +185,20 @@ means:
 References are edited in their row, without a dialog:
 
 - A picked reference sits in the row like any other item, showing the referenced document's
-  preview with its status (published, draft, changes), as in the Studio's reference input. Click it, or
-  its pencil (**Replace reference**), to search for another document. Pick one to replace it, or
-  press Escape (or click elsewhere) to keep the current one.
+  preview with its status (published, draft, changes), as in the Studio's reference input.
+- Click it to open the document in a pane to the right (in the structure tool). The row stays
+  selected while that pane is open. Its pencil (**Replace reference**) searches for another
+  document: pick one to replace it, or press Escape (or click elsewhere) to keep the current one.
 - An empty reference, for example one just added from the **Add item** menu, shows the search.
-  Focusing it opens a popover listing the documents the reference can point to, newest first;
-  typing narrows it down to documents whose title has words starting with what you typed. Use
-  the arrow keys and Enter, or click, to pick one. Adding a reference focuses its search, and
-  leaving it without picking anything removes it again.
-- Picking a document that only exists as a draft makes the reference weak until that document is
-  published (`_weak` and `_strengthenOnPublish`, like the Studio's reference input).
+  Focusing it opens a popover listing the documents the reference can point to; typing narrows
+  them down. Use the arrow keys and Enter, or click, to pick one. Adding a reference focuses its
+  search, and leaving it without picking anything removes it again.
+- The search is the Studio's own, as in its reference input: every type in `to`, each type's
+  search configuration, the workspace's search strategy, the current perspective, and the
+  reference type's `options.filter` (a GROQ string with `filterParams`, or a function).
+- Weak reference types (`weak: true`) stay weak. Picking a document that only exists as a draft
+  makes the reference weak until that document is published (`_weak` and
+  `_strengthenOnPublish`), like the Studio's reference input.
 - Validation (such as `rule.required()`, or a reference to a missing document) shows on the row
   like any other item's. A reference to a document that doesn't exist reads "Document
   unavailable".
