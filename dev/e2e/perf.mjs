@@ -62,9 +62,15 @@ async function run() {
       }
       requestAnimationFrame(tick)
       new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) window.__perf.longTasks.push(entry.duration)
+        for (const entry of list.getEntries()) {
+          window.__perf.longTasks.push({start: entry.startTime, duration: entry.duration})
+        }
       }).observe({type: 'longtask', buffered: false})
     })
+    const mark = (name) =>
+      page.evaluate((key) => {
+        window.__perf[key] = performance.now()
+      }, name)
 
     const row = field
       .getByText(testCase.drag, {exact: true})
@@ -76,12 +82,18 @@ async function run() {
     const x = box.x + box.width / 2
     const y = box.y + box.height / 2
     await page.mouse.move(x, y)
+    await page.waitForTimeout(500)
+    await mark('down')
     await page.mouse.down()
     // Down over `rows` rows (~55px each) and back up, in small steps like a real pointer
     for (let i = 1; i <= 60; i++) await page.mouse.move(x + 5, y + (i / 60) * testCase.rows * 55)
     for (let i = 59; i >= 0; i--) await page.mouse.move(x + 5, y + (i / 60) * testCase.rows * 55)
-    await page.keyboard.press('Escape')
+    // Drop one row lower than it started, so the drop writes a change
+    await page.mouse.move(x + 5, y + 55)
+    await page.waitForTimeout(300)
+    await mark('drop')
     await page.mouse.up()
+    await page.waitForTimeout(1500)
 
     const perf = await page.evaluate(() => {
       window.__perf.running = false
@@ -90,14 +102,23 @@ async function run() {
     await cdp.send('Emulation.setCPUThrottlingRate', {rate: 1})
 
     const frames = perf.frames.slice(1)
+    const tasksBetween = (from, to) =>
+      Math.round(
+        perf.longTasks
+          .filter((task) => task.start >= from && task.start < to)
+          .reduce((sum, task) => sum + task.duration, 0),
+      )
     results.push({
       case: testCase.name,
       renderMs,
       frames: frames.length,
       frameMs: stats(frames),
       framesOver50ms: frames.filter((ms) => ms > 50).length,
-      longTaskMs: Math.round(perf.longTasks.reduce((sum, ms) => sum + ms, 0)),
+      longTaskMs: Math.round(perf.longTasks.reduce((sum, task) => sum + task.duration, 0)),
       longTasks: perf.longTasks.length,
+      // Long tasks in the first 600ms after pointer down, and after the drop
+      dragStartMs: tasksBetween(perf.down, perf.down + 600),
+      dropMs: tasksBetween(perf.drop, Number.POSITIVE_INFINITY),
     })
     await context.close()
   }
@@ -105,7 +126,7 @@ async function run() {
   await browser.close()
   for (const r of results) {
     console.log(
-      `${r.case}: initial render ${r.renderMs}ms | drag frames p50 ${r.frameMs.p50.toFixed(1)}ms p95 ${r.frameMs.p95.toFixed(1)}ms max ${r.frameMs.max.toFixed(0)}ms, ${r.framesOver50ms}/${r.frames} frames >50ms | long tasks ${r.longTasks} (${r.longTaskMs}ms)`,
+      `${r.case}: initial render ${r.renderMs}ms | drag frames p50 ${r.frameMs.p50.toFixed(1)}ms p95 ${r.frameMs.p95.toFixed(1)}ms max ${r.frameMs.max.toFixed(0)}ms, ${r.framesOver50ms}/${r.frames} frames >50ms | long tasks ${r.longTasks} (${r.longTaskMs}ms) | drag start ${r.dragStartMs}ms, drop ${r.dropMs}ms`,
     )
   }
 }
