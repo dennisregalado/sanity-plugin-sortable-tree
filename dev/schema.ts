@@ -101,6 +101,20 @@ export const schemaTypes = [
     ],
   }),
   defineType({
+    name: 'optionsMenu',
+    title: 'Options menu',
+    type: 'document',
+    fields: [
+      title,
+      defineField({
+        name: 'items',
+        type: 'array',
+        of: [defineArrayMember({type: 'menuItem'})],
+        options: {tree: true, sortable: false, disableActions: ['add', 'remove']},
+      }),
+    ],
+  }),
+  defineType({
     name: 'fieldsMenu',
     title: 'Fields menu',
     type: 'document',

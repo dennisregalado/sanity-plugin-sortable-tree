@@ -27,6 +27,8 @@ export interface Props {
   onCollapse?: (id: string) => void
   hasChildren?: boolean
   onItemOpen?: (id: string) => void
+  /** False hides the drag handle (`options.sortable: false`) */
+  sortable?: boolean
 }
 
 const config = {
@@ -57,6 +59,7 @@ function TreeItemComponent({
   onCollapse,
   onItemOpen,
   callbacks,
+  sortable = true,
 }: Props) {
   const {id, collapsed, depth, parentId} = item
   const {t} = useTranslation(sortableTreeLocaleNamespace)
@@ -70,7 +73,7 @@ function TreeItemComponent({
     ...config,
     id,
     index,
-    disabled,
+    disabled: disabled || !sortable,
     data: {
       depth,
       parentId,
@@ -108,27 +111,29 @@ function TreeItemComponent({
         }}
       >
         <Flex gap={1} style={{width: '100%'}} align="center">
-          <Tooltip
-            content={
-              <Text muted size={1}>
-                {t('drag-to-reorder')}
-              </Text>
-            }
-            animate
-            fallbackPlacements={['right', 'left']}
-            placement="top"
-            portal
-          >
-            <Button
-              aria-label={t('drag-to-reorder')}
-              disabled={isDisabled}
-              ref={handleRef}
-              paddingX={2}
-              mode="bleed"
-              icon={DragHandleIcon}
-              style={{pointerEvents: isDisabled ? 'none' : 'auto', cursor: 'all-scroll'}}
-            />
-          </Tooltip>
+          {sortable && (
+            <Tooltip
+              content={
+                <Text muted size={1}>
+                  {t('drag-to-reorder')}
+                </Text>
+              }
+              animate
+              fallbackPlacements={['right', 'left']}
+              placement="top"
+              portal
+            >
+              <Button
+                aria-label={t('drag-to-reorder')}
+                disabled={isDisabled}
+                ref={handleRef}
+                paddingX={2}
+                mode="bleed"
+                icon={DragHandleIcon}
+                style={{pointerEvents: isDisabled ? 'none' : 'auto', cursor: 'all-scroll'}}
+              />
+            </Tooltip>
+          )}
           {hasChildren && onCollapse && (
             <Tooltip
               content={
@@ -229,6 +234,7 @@ export const TreeItem = memo(TreeItemComponent, (previous, next) => {
     previous.onRemove === next.onRemove &&
     previous.onCollapse === next.onCollapse &&
     previous.onItemOpen === next.onItemOpen &&
-    previous.callbacks === next.callbacks
+    previous.callbacks === next.callbacks &&
+    previous.sortable === next.sortable
   )
 })

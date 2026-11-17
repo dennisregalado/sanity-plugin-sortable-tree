@@ -43,6 +43,12 @@ function bigMenu(count) {
 export const fixtures = [
   {_id: 'menu-main', _type: 'menu', title: 'Main menu', items: mainMenu},
   {_id: 'menu-empty', _type: 'menu', title: 'Empty menu', items: []},
+  {
+    _id: 'menu-options',
+    _type: 'optionsMenu',
+    title: 'sortable: false, disableActions: add, remove',
+    items: mainMenu,
+  },
   {_id: 'menu-readonly', _type: 'readOnlyMenu', title: 'Read-only menu', items: mainMenu},
   {
     _id: 'menu-named',

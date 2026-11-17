@@ -251,6 +251,11 @@ export function Tree({
     resolveInitialValue,
     schemaType,
   } = props
+  // Sanity's own array options apply to the whole tree
+  const sortable = schemaType.options?.sortable !== false
+  const disabledActions = schemaType.options?.disableActions
+  const addDisabled = disabledActions?.includes('add') ?? false
+  const removeDisabled = disabledActions?.includes('remove') ?? false
   // dnd-kit's default plugins, with announcements that use item titles and the Studio's locale
   const dragPlugins = useMemo(
     () => [
@@ -436,7 +441,7 @@ export function Tree({
 
   const canAddItemToParent = useCallback(
     (parentId: string | null) => {
-      if (readOnly) return false
+      if (readOnly || addDisabled) return false
 
       if (parentId !== null) {
         const parentItem = memberById.get(parentId)?.item
@@ -449,7 +454,7 @@ export function Tree({
 
       return getAddableTypes(getDestinationArraySchemaType(parentId)).length > 0
     },
-    [getDestinationArraySchemaType, memberById, readOnly],
+    [addDisabled, getDestinationArraySchemaType, memberById, readOnly],
   )
 
   const initialDepth = useRef(0)
@@ -635,7 +640,8 @@ export function Tree({
               hasChildren={hasChildren}
               onCollapse={handleCollapse}
               onItemOpen={onItemOpen ? handleItemOpen : undefined}
-              onRemove={handleRemove}
+              onRemove={removeDisabled ? undefined : handleRemove}
+              sortable={sortable}
               callbacks={renderCallbacks}
             />
           )}
@@ -686,7 +692,9 @@ export function Tree({
       memberById,
       onItemOpen,
       optimisticParentId,
+      removeDisabled,
       renderCallbacks,
+      sortable,
       treeMeta,
     ],
   )
@@ -895,13 +903,15 @@ export function Tree({
             </Box>
           )}
 
-          <li style={{listStyle: 'none'}}>
-            <NewTreeItem
-              addItem={handleAddItem}
-              disabled={!canAddItemToParent(null)}
-              types={getAddableTypes(schemaType)}
-            />
-          </li>
+          {!addDisabled && (
+            <li style={{listStyle: 'none'}}>
+              <NewTreeItem
+                addItem={handleAddItem}
+                disabled={!canAddItemToParent(null)}
+                types={getAddableTypes(schemaType)}
+              />
+            </li>
+          )}
         </Grid>
       </Card>
       <DragOverlay style={{width: '100%'}}>

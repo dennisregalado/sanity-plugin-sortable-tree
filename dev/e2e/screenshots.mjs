@@ -79,6 +79,13 @@ const scenarios = {
     },
   },
   'empty': {url: docUrl('menu', 'menu-empty')},
+  'options': {url: docUrl('optionsMenu', 'menu-options')},
+  'options-hover': {
+    url: docUrl('optionsMenu', 'menu-options'),
+    async act(page, field) {
+      await field.getByText('Shop', {exact: true}).first().hover()
+    },
+  },
   'readonly': {url: docUrl('readOnlyMenu', 'menu-readonly')},
   'named': {url: docUrl('namedMenu', 'menu-named')},
   'mixed': {url: docUrl('mixedMenu', 'menu-mixed')},
