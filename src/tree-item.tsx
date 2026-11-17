@@ -27,7 +27,12 @@ import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
 import {type AddableType, AddChildButton} from './new-tree-item'
 import type {PatchInput} from './patches'
-import {ReferenceSearch, type ReferenceTarget, useReferencedType} from './reference-search'
+import {
+  ReferenceSearch,
+  type ReferenceTarget,
+  ROW_PREVIEW_HEIGHT,
+  useReferencedType,
+} from './reference-search'
 import {FlattenedItem} from './types'
 import {isReferenceType} from './utils'
 import {collectValidation} from './validation'
@@ -59,6 +64,8 @@ export interface Props {
 const SORTABLE_PLUGINS: PluginConstructor[] = []
 const NO_TYPES: AddableType[] = []
 const NO_TARGETS: SchemaType[] = []
+// The preview button's content box: its height less its padding (4px each side)
+const UNAVAILABLE_STYLE: React.CSSProperties = {minWidth: 0, minHeight: ROW_PREVIEW_HEIGHT - 8}
 
 const config = {
   alignment: {
@@ -268,11 +275,12 @@ function TreeItemComponent({
             >
               <Flex align="center" justify="space-between" style={{width: '100%'}}>
                 {referenceId && referencedType === null ? (
-                  <Box paddingY={2} style={{minWidth: 0}}>
+                  // As tall as a preview, so the row is the same size as the others
+                  <Flex align="center" style={UNAVAILABLE_STYLE}>
                     <Text muted size={1} textOverflow="ellipsis">
                       {t('reference.unavailable')}
                     </Text>
-                  </Box>
+                  </Flex>
                 ) : referenceId ? (
                   <Box flex={1} style={{marginLeft: -8, minWidth: 0}}>
                     {referencedType && referencedSchemaType ? (

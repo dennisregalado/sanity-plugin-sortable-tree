@@ -23,8 +23,29 @@ import {
 import {sortableTreeLocaleNamespace} from './i18n'
 
 const API_VERSION = '2025-02-19'
+/** Height of a row's preview button (a compact preview in a `padding={1}` bleed button) */
+export const ROW_PREVIEW_HEIGHT = 41
 /** Documents listed before anything is typed, and matches listed for a search */
 const LIMIT = 20
+
+/** The search icon, centered on the preview's media (left 4px, 25px wide) */
+const ICON_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  zIndex: 1,
+  top: 0,
+  bottom: 0,
+  left: 4,
+  width: 25,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 21,
+  color: 'var(--card-muted-fg-color)',
+  pointerEvents: 'none',
+}
+
+/** See the input's `style` */
+const INPUT_STYLE: React.CSSProperties = {height: ROW_PREVIEW_HEIGHT, paddingLeft: 37}
 
 /** A document the reference can point to */
 export interface ReferenceTarget {
@@ -247,7 +268,7 @@ export function ReferenceSearch({to, autoFocus, readOnly, onPick, onDone}: Props
     )
 
   return (
-    <Box ref={setContainer} flex={1} style={{minWidth: 0}}>
+    <Box ref={setContainer} flex={1} style={{minWidth: 0, position: 'relative'}}>
       <Popover
         open={open && !readOnly}
         // Not the row's validation tone
@@ -278,14 +299,22 @@ export function ReferenceSearch({to, autoFocus, readOnly, onPick, onDone}: Props
           </Card>
         }
       />
+      {/* Where the picked reference's preview shows its media, centered in the taller input (the
+          input's own icon slot is sized for its default height), like the color select plugin's
+          swatch */}
+      <span aria-hidden style={ICON_STYLE}>
+        <SearchIcon />
+      </span>
       <TextInput
         ref={inputRef}
-        icon={SearchIcon}
         fontSize={1}
         weight="medium"
         readOnly={readOnly}
         placeholder={t('reference.search')}
         aria-label={t('reference.search')}
+        // The size of the picked reference's preview button it replaces, with the text where the
+        // preview's title starts, so the row keeps its height and nothing shifts
+        style={INPUT_STYLE}
         value={query}
         onFocus={() => setOpen(true)}
         onClick={() => setOpen(true)}
