@@ -200,6 +200,40 @@ the form update.
 **11 items (≈100 ms)**: 248 ms busy, of which 70 ms is the same `RestrictToList` forced layout and 90
 ms is browser rendering.
 
+## Follow-ups after 2.1.0
+
+Recommendations 2, 3, 4 and 8 are done: `b83b7e3` (skip slides for rows that stay off-screen),
+`d17d455` (`RestrictToList` keeps the tree's bounds), `770e78a` (rows don't re-render for an index
+shift) and `4fa36d5` (perf script: reorder case, `--warm`). All 20 drag-frame captures are
+pixel-identical to 2.1.0. During an auto-scroll in the 500-item tree, at most 22 slides run at once
+instead of 145; rows scrolling into view mid-slide are already in place (screenshot-checked).
+
+Production builds of 2.1.0 (`b815ead`) and `4fa36d5`, served side by side, 4× CPU throttling,
+medians of 3 interleaved runs with the range in parentheses. This machine was about twice as slow
+as the one above, so compare within this table only.
+
+|                                       | 2.1.0                  | Follow-ups                   |
+| ------------------------------------- | ---------------------- | ---------------------------- |
+| 500 items, cold: long-task total      | 7.04 s (6.85–8.16)     | **5.22 s** (4.82–6.97), −26% |
+| 500 items, cold: frames > 50 ms       | 92 (76–93)             | **74** (55–75)               |
+| 500 items, cold: frame p95            | 117 ms (117–133)       | **100 ms** (83–100)          |
+| 500 items, cold: drag start / drop    | 701 / 2,050 ms         | 740 / 1,985 ms (noise)       |
+| 500 items, warm: long-task total      | 6.88 s (6.45–8.25)     | **3.87 s** (3.63–5.57), −44% |
+| 500 items, warm: frames > 50 ms       | 99 (90–116)            | **58** (51–80), −41%         |
+| 500 items, warm: frame p95            | 133 ms (117–133)       | **83 ms** (83–100)           |
+| 500 items, warm: drag start / drop    | 499 / 1,590 ms         | **418** / 1,549 ms           |
+| 11 items, reorder, cold: long tasks   | 1,731 ms (1,456–2,118) | 1,729 ms (1,607–1,782)       |
+| 11 items, reorder, cold: start / drop | 494 / 595 ms           | 434 / 635 ms                 |
+| 11 items (last row), cold: long tasks | 973 ms (940–990)       | 820 ms (782–900)             |
+
+The long-tree drag is where the gain is: about a quarter less main-thread work cold and close to half
+warm, with 20–40% fewer janky frames. Drag start and drop, and everything in the 11-item tree, stay
+within run-to-run noise: the 70–120 ms `RestrictToList` saving at drop is smaller than the spread of
+a 1.5–2.5 s drop.
+
+Still open: 5 (tooltips on hover) and 6 (smaller windowing margin while dragging), both visual
+risks, and 7 (Studio-owned).
+
 ## Recommendations
 
 Ranked by expected gain for the 500-item tree. Gains are at 4× throttling, production build.
