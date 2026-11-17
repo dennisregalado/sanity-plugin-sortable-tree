@@ -189,11 +189,13 @@ References are edited in their row, without a dialog:
   the Studio's reference search, with the current title selected. Pick a document to replace it,
   or press Escape (or click elsewhere) to keep it.
 - An empty reference, for example one just added from the **Add item** menu, shows the Studio's
-  reference search with its **Create** button. Adding a reference focuses its search. As in the
+  reference search. Adding a reference focuses its search. As in the
   Studio's own array input, leaving an empty reference without picking anything removes it.
 - Validation (such as `rule.required()`, or a reference to a missing document) shows on the row
   like any other item's. A reference to a document that doesn't exist reads "Document
   unavailable".
+- The row only picks existing documents: its reference search has no **Create** button (the tree
+  sets the reference type's `options.disableNew` for it). To make a new page, create it first.
 
 **A link that needs children:** use a menu item with a reference _field_ plus `children`. It
 nests like any other item:

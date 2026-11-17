@@ -53,6 +53,22 @@ export interface RowFocus {
 
 const RowFocusContext = createContext<RowFocus | null>(null)
 
+const noCreateTypes = new WeakMap<object, object>()
+
+/**
+ * The reference type with `options.disableNew`, which hides the reference input's "Create" button:
+ * the row only picks existing documents. Cached, so the input sees a stable schema type.
+ */
+function withoutCreate<T extends {options?: object}>(schemaType: T): T {
+  let type = noCreateTypes.get(schemaType)
+  if (!type) {
+    type = {...schemaType, options: {...schemaType.options, disableNew: true}}
+    noCreateTypes.set(schemaType, type)
+  }
+  // oxlint-disable-next-line no-unsafe-type-assertion -- the same type, with one option added
+  return type as T
+}
+
 /** Renders only the item's input (the Studio's reference search), with the row's focus handling */
 function TreeItemField(props: ItemProps) {
   const rowFocus = useContext(RowFocusContext)
@@ -61,6 +77,7 @@ function TreeItemField(props: ItemProps) {
   const {inputProps} = props
   const rowInputProps = {
     ...inputProps,
+    schemaType: withoutCreate(inputProps.schemaType),
     focusPath: rowFocus.focusPath,
     focused: rowFocus.focusPath.length > 0,
     onPathFocus: rowFocus.onPathFocus,

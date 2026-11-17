@@ -244,6 +244,8 @@ const tests = {
         () => page.evaluate(() => document.activeElement?.dataset.testid === 'autocomplete'),
         'the reference search to be focused',
       )
+      // The row only picks existing documents: no "Create" button
+      assert.equal(await field.getByRole('button', {name: 'Create'}).count(), 0)
       await pickInSearch(page, 'Jour', 'Journal')
 
       const draft = await waitFor(async () => {
