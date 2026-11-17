@@ -572,6 +572,13 @@ export function Tree({
     [getDestinationArraySchemaType, memberById],
   )
 
+  // Only items whose schema type has a `children` array can be dropped into: never references
+  const canHaveChildren = useCallback(
+    (item: FlattenedItem) =>
+      getChildrenArraySchemaType(memberById.get(item.id)?.item?.schemaType) !== undefined,
+    [memberById],
+  )
+
   const canAddItemToParent = useCallback(
     (parentId: string | null) => {
       if (readOnly || addDisabled) return false
@@ -956,6 +963,7 @@ export function Tree({
             target.id,
             projectedDepth,
             maxDepth - sourceDescendantDepth.current,
+            canHaveChildren,
           )
 
           const sourceIndex = activeItems.findIndex((item) => item.id === String(source.id))
@@ -1007,6 +1015,7 @@ export function Tree({
             movedItem.id,
             movedItem.depth,
             maxDepth - sourceDescendantDepth.current,
+            canHaveChildren,
           )
 
           if (!canMoveItemToParent(movedItem, parentId)) return
@@ -1059,6 +1068,7 @@ export function Tree({
             source.id,
             projectedDepth,
             maxDepth - sourceDescendantDepth.current,
+            canHaveChildren,
           )
 
           if (keyboard) {

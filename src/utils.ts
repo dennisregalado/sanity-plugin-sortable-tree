@@ -89,18 +89,24 @@ export function getDragDepth(offset: number, indentationWidth: number) {
   return Math.round(offset / indentationWidth)
 }
 
+/**
+ * Where the dragged item lands: its depth and new parent, from where the pointer is. With
+ * `canHaveChildren`, it never nests under an item that can't hold children (a reference, or an
+ * item type without a `children` field): it stays a sibling of that item instead.
+ */
 export function getProjection(
   items: FlattenedItem[],
   targetId: UniqueIdentifier,
   projectedDepth: number,
   maxDepth = Number.POSITIVE_INFINITY,
+  canHaveChildren: (item: FlattenedItem) => boolean = () => true,
 ) {
   const targetItemIndex = items.findIndex(({id}) => id === String(targetId))
   const previousItem = items[targetItemIndex - 1]
   const targetItem = items[targetItemIndex]
   const nextItem = items[targetItemIndex + 1]
   const maxProjectedDepth = Math.min(
-    getMaxDepth(targetItem, previousItem),
+    getMaxDepth(targetItem, previousItem, canHaveChildren),
     Math.max(0, maxDepth - 1),
   )
   const minDepth = Math.min(getMinDepth(nextItem), maxProjectedDepth)
@@ -136,10 +142,15 @@ export function getProjection(
   }
 }
 
-function getMaxDepth(targetItem: FlattenedItem, previousItem: FlattenedItem | undefined) {
+function getMaxDepth(
+  targetItem: FlattenedItem,
+  previousItem: FlattenedItem | undefined,
+  canHaveChildren: (item: FlattenedItem) => boolean,
+) {
   if (!previousItem) return 0
 
-  return Math.min(targetItem.depth + 1, previousItem.depth + 1)
+  const previousMax = canHaveChildren(previousItem) ? previousItem.depth + 1 : previousItem.depth
+  return Math.min(targetItem.depth + 1, previousMax)
 }
 
 function getMinDepth(nextItem: FlattenedItem) {
@@ -178,4 +189,17 @@ export function getDescendants(
   visitChildren(parentId)
 
   return descendants
+}
+
+/**
+ * Whether a schema type is a reference (or a type based on one). Sanity's own
+ * `isReferenceSchemaType` is internal, so this mirrors it: walk the type chain to `reference`.
+ */
+export function isReferenceType(schemaType: unknown): boolean {
+  let type: unknown = schemaType
+  for (let depth = 0; isRecord(type) && depth < 20; depth++) {
+    if (type.name === 'reference') return true
+    type = type.type
+  }
+  return false
 }

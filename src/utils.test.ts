@@ -100,4 +100,29 @@ describe('getProjection', () => {
   it('keeps the first item at the root', () => {
     expect(getProjection(flat, 'home', 3)).toMatchObject({depth: 0, parentId: null})
   })
+
+  it("never nests under an item that can't have children (a reference)", () => {
+    const refs: Item[] = [
+      {_key: 'ref', _type: 'reference', _ref: 'page-home'},
+      item('about'),
+      item('shop', [{_key: 'ref2', _type: 'reference', _ref: 'page-shoes'}]),
+      item('contact'),
+    ]
+    const flatRefs = flattenTree(refs)
+    const isLeaf = (entry: {_type?: string}) => entry._type === 'reference'
+    const canHaveChildren = (entry: {_type?: string}) => !isLeaf(entry)
+
+    // "about" right after the root reference: pulling it right keeps it a sibling
+    expect(getProjection(flatRefs, 'about', 1, 3, canHaveChildren)).toMatchObject({
+      depth: 0,
+      parentId: null,
+    })
+    // "contact" right after "shop/ref2": it can join "shop", but not go under the reference
+    expect(getProjection(flatRefs, 'contact', 2, 3, canHaveChildren)).toMatchObject({
+      depth: 1,
+      parentId: 'shop',
+    })
+    // Without the check, it would nest under the reference
+    expect(getProjection(flatRefs, 'about', 1)).toMatchObject({depth: 1, parentId: 'ref'})
+  })
 })
