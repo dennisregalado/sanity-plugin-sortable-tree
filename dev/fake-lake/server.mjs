@@ -165,9 +165,49 @@ function datasetFor(perspective) {
   return [...byId.values()]
 }
 
+/** Splits `a, b(c, d), e` at its top-level commas */
+function splitArgs(text) {
+  const args = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    if (char === '(' || char === '[') depth++
+    else if (char === ')' || char === ']') depth--
+    else if (char === ',' && depth === 0) {
+      args.push(text.slice(start, i).trim())
+      start = i + 1
+    }
+  }
+  args.push(text.slice(start).trim())
+  return args
+}
+
+/**
+ * groq-js has no score() or boost(), which the Studio's search uses (e.g. the reference input's):
+ * `| score(a, boost(b, 10)) [_score > 0]` becomes the filter `[(a) || (b)]`, with every hit
+ * scoring 1 (results keep their order in the dataset)
+ */
+function shimScore(query) {
+  const start = query.indexOf('| score(')
+  if (start === -1) return query
+  let depth = 0
+  let end = start + '| score('.length - 1
+  for (; end < query.length; end++) {
+    if (query[end] === '(') depth++
+    else if (query[end] === ')' && --depth === 0) break
+  }
+  const conditions = splitArgs(query.slice(start + '| score('.length, end)).map((arg) => {
+    const boost = arg.match(/^boost\(([\s\S]*)\)$/)
+    return `(${boost ? splitArgs(boost[1])[0] : arg})`
+  })
+  const rest = query.slice(end + 1).replace(/^\s*\[_score > 0\]/, '')
+  return `${query.slice(0, start)}[${conditions.join(' || ')}]${rest}`.replaceAll('_score', '1')
+}
+
 async function runQuery(rawQuery, params, perspective) {
   // groq-js has no text::query(); a glob `match` is close enough for the Studio's list search
-  const query = rawQuery.replaceAll('text::query($__query)', '$__query')
+  const query = shimScore(rawQuery.replaceAll('text::query($__query)', '$__query'))
   const result = await evaluate(parse(query, {params}), {
     dataset: datasetFor(perspective),
     params,

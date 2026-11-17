@@ -48,7 +48,44 @@ function bigMenu(count) {
   return items
 }
 
+const page = (id, title, slug) => ({_id: id, _type: 'page', title, slug})
+const ref = (key, id, extra) => ({_key: key, _type: 'reference', _ref: id, ...extra})
+const navItem = (key, title, link, children) => ({
+  _key: key,
+  _type: 'navItem',
+  title,
+  ...(link ? {link: {_type: 'reference', _ref: link}} : {}),
+  ...(children ? {children} : {}),
+})
+
+// Menu items and references to pages, mixed at every level
+const pageMenu = [
+  ref('ref-home', 'page-home'),
+  navItem('products', 'Products', 'page-products', [
+    ref('ref-shoes', 'page-shoes'),
+    ref('ref-bags', 'page-bags'),
+    navItem('more', 'More', null, [ref('ref-sale', 'page-sale')]),
+  ]),
+  navItem('company', 'Company', null, [
+    ref('ref-about', 'page-about', {_weak: true, _strengthenOnPublish: {type: 'page'}}),
+    // A reference to a document that doesn't exist
+    ref('ref-missing', 'page-deleted'),
+  ]),
+  // A reference with no document picked yet
+  {_key: 'ref-empty', _type: 'reference'},
+  ref('ref-contact', 'page-contact'),
+]
+
 export const fixtures = [
+  page('page-home', 'Home', '/'),
+  page('page-products', 'Products', '/products'),
+  page('page-shoes', 'Shoes', '/products/shoes'),
+  page('page-bags', 'Bags', '/products/bags'),
+  page('page-sale', 'Sale', '/sale'),
+  page('page-about', 'About us', '/about'),
+  page('page-contact', 'Contact', '/contact'),
+  page('page-journal', 'Journal', '/journal'),
+  {_id: 'menu-pages', _type: 'pageMenu', title: 'Pages and menu items', items: pageMenu},
   {_id: 'menu-main', _type: 'menu', title: 'Main menu', items: mainMenu},
   {_id: 'menu-empty', _type: 'menu', title: 'Empty menu', items: []},
   {

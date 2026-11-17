@@ -1,3 +1,5 @@
+import {DocumentIcon} from '@sanity/icons/Document'
+import {LinkIcon} from '@sanity/icons/Link'
 import {defineArrayMember, defineField, defineType} from 'sanity'
 
 const menuItem = defineType({
@@ -35,6 +37,51 @@ const fieldsItem = defineType({
   ],
 })
 
+/** A document that menus link to */
+const page = defineType({
+  name: 'page',
+  title: 'Page',
+  type: 'document',
+  icon: DocumentIcon,
+  fields: [
+    defineField({name: 'title', type: 'string'}),
+    defineField({name: 'slug', type: 'string'}),
+  ],
+  preview: {select: {title: 'title', subtitle: 'slug'}},
+})
+
+/** A reference to a page: a leaf in the tree (references have no `children`) */
+const pageReference = defineArrayMember({
+  type: 'reference',
+  title: 'Page',
+  to: [{type: 'page'}],
+  validation: (rule) => rule.required(),
+})
+
+/**
+ * A menu item that links to a page and can still hold nested items: the pattern for "a link
+ * with children" (a reference itself can't have children)
+ */
+const navItem = defineType({
+  name: 'navItem',
+  title: 'Menu item',
+  type: 'object',
+  icon: LinkIcon,
+  fields: [
+    defineField({name: 'title', type: 'string'}),
+    defineField({name: 'link', type: 'reference', to: [{type: 'page'}]}),
+    defineField({
+      name: 'children',
+      type: 'array',
+      of: [defineArrayMember({type: 'navItem'}), pageReference],
+    }),
+  ],
+  preview: {
+    select: {title: 'title', linkTitle: 'link.title'},
+    prepare: ({title, linkTitle}) => ({title: title || linkTitle}),
+  },
+})
+
 /** A named array type: the tree should apply to it too */
 const menuTree = defineType({
   name: 'menuTree',
@@ -51,6 +98,8 @@ export const schemaTypes = [
   menuDivider,
   fieldsItem,
   menuTree,
+  page,
+  navItem,
   defineType({
     name: 'menu',
     title: 'Menu',
@@ -134,6 +183,21 @@ export const schemaTypes = [
         name: 'items',
         type: 'array',
         of: [defineArrayMember({type: 'fieldsItem'})],
+        options: {tree: true},
+      }),
+    ],
+  }),
+  defineType({
+    // Menu items mixed with references to pages, at any depth
+    name: 'pageMenu',
+    title: 'Page menu',
+    type: 'document',
+    fields: [
+      title,
+      defineField({
+        name: 'items',
+        type: 'array',
+        of: [defineArrayMember({type: 'navItem'}), pageReference],
         options: {tree: true},
       }),
     ],
