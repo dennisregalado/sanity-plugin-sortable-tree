@@ -144,6 +144,81 @@ The value is a plain Sanity array. Each item keeps its own fields; nested items 
   array) are left untouched, and a note under their parent says so. Open the parent item to fix
   them with the Studio's own tools.
 
+### References
+
+A tree can mix items with references to documents, at any depth: list the reference type in the
+array's `of`, and in the `children` field's `of`:
+
+```ts
+const pageReference = defineArrayMember({type: 'reference', to: [{type: 'page'}]})
+
+export const navItem = defineType({
+  name: 'navItem',
+  type: 'object',
+  fields: [
+    defineField({name: 'title', type: 'string'}),
+    defineField({name: 'children', type: 'array', of: [{type: 'navItem'}, pageReference]}),
+  ],
+})
+
+// In the document:
+defineField({
+  name: 'items',
+  type: 'array',
+  of: [defineArrayMember({type: 'navItem'}), pageReference],
+  options: {tree: true},
+})
+```
+
+**References are leaves.** A reference is just a pointer to another document, with no fields of
+its own, so it can't hold `children` (the same as in Sanity's own data model). In the tree that
+means:
+
+- A reference row has no nested list and no "Add nested item" action.
+- Nothing can be dropped into a reference. While dragging, a row pulled to the right of a
+  reference stays its sibling. More generally, items only nest under item types with a
+  `children` array field.
+- References can be dragged anywhere a reference is allowed (the root, or any `children` array
+  whose `of` includes the reference type) and reordered like any other row. Moving one keeps its
+  `_ref`, `_weak` and `_strengthenOnPublish`.
+
+References are edited in their row, without a dialog:
+
+- A picked reference shows the document's preview and status. Click it to open the document in a
+  pane to the right (in the structure tool). The pencil (**Replace reference**) swaps the row for
+  the Studio's reference search, with the current title selected. Pick a document to replace it,
+  or press Escape (or click elsewhere) to keep it.
+- An empty reference, for example one just added from the **Add item** menu, shows the Studio's
+  reference search with its **Create** button. Adding a reference focuses its search. As in the
+  Studio's own array input, leaving an empty reference without picking anything removes it.
+- Validation (such as `rule.required()`, or a reference to a missing document) shows on the row
+  like any other item's. A reference to a document that doesn't exist reads "Document
+  unavailable".
+
+**A link that needs children:** use a menu item with a reference _field_ plus `children`. It
+nests like any other item:
+
+```ts
+export const navItem = defineType({
+  name: 'navItem',
+  type: 'object',
+  fields: [
+    defineField({name: 'title', type: 'string'}),
+    defineField({name: 'link', type: 'reference', to: [{type: 'page'}]}),
+    defineField({name: 'children', type: 'array', of: [{type: 'navItem'}, pageReference]}),
+  ],
+  preview: {
+    select: {title: 'title', linkTitle: 'link.title'},
+    prepare: ({title, linkTitle}) => ({title: title || linkTitle}),
+  },
+})
+```
+
+> The selected-reference box uses `SearchResultItemPreview` (marked `@internal` in Sanity 6.23)
+> for the preview with status, and `usePaneRouter` from `sanity/structure` (`@beta`) to open the
+> document in a pane, like the link picker plugin. Outside the structure tool the preview isn't a
+> link.
+
 ### Using the input directly
 
 The plugin applies the input to every array with `options.tree`. You can also set it on a single
