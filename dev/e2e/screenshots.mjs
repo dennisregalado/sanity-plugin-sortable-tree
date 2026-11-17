@@ -12,13 +12,16 @@ const require = createRequire(import.meta.url)
 const {chromium} = require('playwright')
 
 const [outDir = 'screenshots', studioUrl = 'http://localhost:3333', ...only] = process.argv.slice(2)
-const LAKE = 'https://fakelake.localhost:3334'
+// Node can't resolve *.localhost; the fake lake answers on any host name
+const LAKE = 'https://localhost:3334'
+// The fake lake uses a self-signed certificate
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const docUrl = (type, id) => `${studioUrl}/structure/${type};${id}`
 
 /** Each scenario opens a document, optionally interacts, and returns what to capture */
 const scenarios = {
-  'main': {url: docUrl('menu', 'menu-main')},
+  main: {url: docUrl('menu', 'menu-main')},
   'main-hover': {
     url: docUrl('menu', 'menu-main'),
     async act(page, field) {
@@ -60,11 +63,11 @@ const scenarios = {
       await page.waitForTimeout(600)
     },
   },
-  'empty': {url: docUrl('menu', 'menu-empty')},
-  'readonly': {url: docUrl('readOnlyMenu', 'menu-readonly')},
-  'named': {url: docUrl('namedMenu', 'menu-named')},
-  'mixed': {url: docUrl('mixedMenu', 'menu-mixed')},
-  'malformed': {url: docUrl('menu', 'menu-malformed')},
+  empty: {url: docUrl('menu', 'menu-empty')},
+  readonly: {url: docUrl('readOnlyMenu', 'menu-readonly')},
+  named: {url: docUrl('namedMenu', 'menu-named')},
+  mixed: {url: docUrl('mixedMenu', 'menu-mixed')},
+  malformed: {url: docUrl('menu', 'menu-malformed')},
 }
 
 async function run() {
@@ -75,7 +78,8 @@ async function run() {
   for (const scheme of ['light', 'dark']) {
     for (const name of names) {
       const scenario = scenarios[name]
-      await fetch(`${LAKE}/__fake/reset`, {method: 'POST'}).catch(() => {})
+      const reset = await fetch(`${LAKE}/__fake/reset`, {method: 'POST'})
+      if (!reset.ok) throw new Error(`Could not reset the fake lake: ${reset.status}`)
       const context = await browser.newContext({
         ignoreHTTPSErrors: true,
         viewport: {width: 1100, height: 1400},

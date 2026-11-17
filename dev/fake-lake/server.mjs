@@ -52,12 +52,27 @@ function getCertificate() {
   const cert = new URL('cert.pem', CERT_DIR)
   if (!existsSync(key) || !existsSync(cert)) {
     mkdirSync(CERT_DIR, {recursive: true})
-    execFileSync('openssl', [
-      'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '3650',
-      '-subj', '/CN=localhost',
-      '-addext', 'subjectAltName=DNS:localhost,DNS:*.localhost',
-      '-keyout', key.pathname, '-out', cert.pathname,
-    ], {stdio: 'ignore'})
+    execFileSync(
+      'openssl',
+      [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-days',
+        '3650',
+        '-subj',
+        '/CN=localhost',
+        '-addext',
+        'subjectAltName=DNS:localhost,DNS:*.localhost',
+        '-keyout',
+        key.pathname,
+        '-out',
+        cert.pathname,
+      ],
+      {stdio: 'ignore'},
+    )
   }
   return {key: readFileSync(key), cert: readFileSync(cert)}
 }
@@ -286,7 +301,8 @@ const server = createSecureServer({...getCertificate(), allowHTTP1: true}, async
   const url = new URL(req.url, `https://${req.headers.host ?? req.headers[':authority']}`)
   // Strip the API version prefix (/v1, /v2025-02-19, /vX)
   const path = url.pathname.replace(/^\/v[^/]+/, '')
-  if (process.env.FAKE_LAKE_DEBUG) console.log(`[fake-lake] ${req.method} ${url.pathname}${url.search}`)
+  if (process.env.FAKE_LAKE_DEBUG)
+    console.log(`[fake-lake] ${req.method} ${url.pathname}${url.search}`)
 
   try {
     if (path === '/__fake/transactions') return json(res, 200, transactions)

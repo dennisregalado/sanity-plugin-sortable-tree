@@ -13,7 +13,8 @@ const require = createRequire(import.meta.url)
 const {chromium} = require('playwright')
 
 const studioUrl = process.argv[2] ?? 'http://localhost:3333'
-const LAKE = 'https://fakelake.localhost:3334'
+// Node can't resolve *.localhost; the fake lake answers on any host name
+const LAKE = 'https://localhost:3334'
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const lake = {
@@ -44,9 +45,13 @@ async function waitFor(check, message, timeout = 15000) {
 
 const keys = (items) => (items ?? []).map((item) => item._key)
 
+/** The innermost tree row (`li`) showing `text` */
+const rowOf = (field, text) =>
+  field.getByText(text, {exact: true}).first().locator('xpath=ancestor::li[1]')
+
 const tests = {
   async 'removes an item with a single unset'(page, field) {
-    const row = field.locator('li', {hasText: 'Sale'}).first()
+    const row = rowOf(field, 'Sale')
     await row.getByText('Sale', {exact: true}).first().hover()
     await row.locator('button').last().click()
 
@@ -71,9 +76,8 @@ const tests = {
   },
 
   async 'moves an item into another parent with unset + insert'(page, field) {
-    const contact = field.locator('li', {hasText: 'Contact'}).first()
-    const handle = contact.locator('button').first()
-    const target = field.locator('li', {hasText: 'Team'}).first()
+    const handle = rowOf(field, 'Contact').locator('button').first()
+    const target = rowOf(field, 'Team')
     const from = await handle.boundingBox()
     const to = await target.boundingBox()
 
@@ -91,7 +95,10 @@ const tests = {
     }, 'Contact moved out of the root')
 
     const about = draft.items.find((item) => item._key === 'about')
-    assert.ok(keys(about.children).includes('contact'), `Contact under About: ${JSON.stringify(about)}`)
+    assert.ok(
+      keys(about.children).includes('contact'),
+      `Contact under About: ${JSON.stringify(about)}`,
+    )
     assert.equal(about.children.find((c) => c._key === 'contact').url, '/contact')
 
     const patches = await sentPatches()
