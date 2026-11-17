@@ -21,6 +21,10 @@ Production pass: safer edits, Sanity-native behavior, translations.
 
 **Improvements**
 
+- "Add item" opens a type menu for lists with several item types (it was disabled).
+- Edit and Remove also show on keyboard focus, and always on touch screens.
+- `options.sortable: false` and `disableActions: ['add' | 'remove']` are respected.
+- Items whose nested data can't be shown get a note instead of silently hiding it.
 - Strings are translatable through the `sortable-tree` locale namespace (exported as
   `sortableTreeLocaleNamespace`), with an English bundle.
 - Accessible labels for icon buttons, and localized screen reader announcements while dragging.

@@ -8,6 +8,8 @@ inside a single document.
 
 - Drag to reorder and to change nesting, with a drag handle per item (pointer and keyboard).
 - Items are edited in the Studio's own dialogs, with the schema's previews and initial values.
+- Lists with several item types get a type menu on "Add item".
+- Edit and Remove show on hover, on keyboard focus, and always on touch screens.
 - Edits are sent as targeted patches (`insert`/`unset` by `_key`), like the Studio's own array
   input, so concurrent edits by other people are kept.
 - Respects read-only fields, documents and perspectives (published, releases).
@@ -107,6 +109,9 @@ Set these in the array field's `options`:
 | `tree`     | `boolean` | `false` | Edit the array as a sortable tree.                                      |
 | `maxDepth` | `number`  | `3`     | How many levels deep items can be nested. `1` allows no nesting at all. |
 
+Sanity's own array options apply to the whole tree: `sortable: false` hides the drag handles, and
+`disableActions: ['add']` / `['remove']` hide the Add and Remove buttons.
+
 ### How the data is stored
 
 The value is a plain Sanity array. Each item keeps its own fields; nested items are in its
@@ -128,8 +133,9 @@ The value is a plain Sanity array. Each item keeps its own fields; nested items 
   item gets a new `_key` if it moves next to an item with the same key.
 - An item with `collapsed: true` in its stored value starts out collapsed. Expanding and collapsing
   in the Studio doesn't change the document.
-- Items the tree can't show (no `_key`, or not an object) are left untouched. Open the parent item
-  to fix them with the Studio's own tools.
+- Nested items the tree can't show (no `_key`, a repeated `_key`, or `children` that isn't an
+  array) are left untouched, and a note under their parent says so. Open the parent item to fix
+  them with the Studio's own tools.
 
 ### Using the input directly
 
