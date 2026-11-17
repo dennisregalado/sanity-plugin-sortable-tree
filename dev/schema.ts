@@ -1,5 +1,6 @@
 import {DocumentIcon} from '@sanity/icons/Document'
 import {LinkIcon} from '@sanity/icons/Link'
+import {PackageIcon} from '@sanity/icons/Package'
 import {defineArrayMember, defineField, defineType} from 'sanity'
 
 const menuItem = defineType({
@@ -48,6 +49,19 @@ const page = defineType({
     defineField({name: 'slug', type: 'string'}),
   ],
   preview: {select: {title: 'title', subtitle: 'slug'}},
+})
+
+/** Another document type menus link to, so a reference can point to more than one type */
+const product = defineType({
+  name: 'product',
+  title: 'Product',
+  type: 'document',
+  icon: PackageIcon,
+  fields: [
+    defineField({name: 'title', type: 'string'}),
+    defineField({name: 'sku', type: 'string'}),
+  ],
+  preview: {select: {title: 'title', subtitle: 'sku'}},
 })
 
 /** A reference to a page: a leaf in the tree (references have no `children`) */
@@ -99,6 +113,7 @@ export const schemaTypes = [
   fieldsItem,
   menuTree,
   page,
+  product,
   navItem,
   defineType({
     name: 'menu',
@@ -198,6 +213,43 @@ export const schemaTypes = [
         name: 'items',
         type: 'array',
         of: [defineArrayMember({type: 'navItem'}), pageReference],
+        options: {tree: true},
+      }),
+    ],
+  }),
+  defineType({
+    // References to more than one document type, a weak reference, and a filtered one
+    name: 'linkMenu',
+    title: 'Link menu',
+    type: 'document',
+    fields: [
+      title,
+      defineField({
+        name: 'items',
+        type: 'array',
+        of: [
+          defineArrayMember({type: 'navItem'}),
+          defineArrayMember({
+            type: 'reference',
+            name: 'link',
+            title: 'Page or product',
+            to: [{type: 'page'}, {type: 'product'}],
+          }),
+          defineArrayMember({
+            type: 'reference',
+            name: 'weakPage',
+            title: 'Page (weak)',
+            weak: true,
+            to: [{type: 'page'}],
+          }),
+          defineArrayMember({
+            type: 'reference',
+            name: 'productPage',
+            title: 'Product page',
+            to: [{type: 'page'}],
+            options: {filter: 'slug match $prefix', filterParams: {prefix: '/products*'}},
+          }),
+        ],
         options: {tree: true},
       }),
     ],

@@ -37,6 +37,19 @@ export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
     'reference.replace': 'Replace reference',
     /** Shown in place of a referenced document that doesn't exist or can't be read */
     'reference.unavailable': 'Document unavailable',
+    /** Placeholder and label of the reference search */
+    'reference.search': 'Search for a reference',
+    /** Heading of the reference search's list when the reference can point to several types */
+    'reference.documents': 'Documents',
+    /** Heading of the reference search's list while it searches */
+    'reference.searching': 'Searching…',
+    /** Heading of the reference search's list: how many documents match */
+    'reference.results_one': '{{count}} result',
+    'reference.results_other': '{{count}} results',
+    /** Shown when no document matches the search */
+    'reference.no-matches': 'No documents match “{{query}}”',
+    /** Shown when there are no documents to pick */
+    'reference.none': 'No documents yet',
     /** Tooltip and label for the button that expands an item's children */
     'expand': 'Expand',
     /** Shown when the list is empty */
