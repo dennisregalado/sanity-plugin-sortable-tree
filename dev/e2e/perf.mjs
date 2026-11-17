@@ -5,23 +5,54 @@
  *
  * Needs the test Studio running (`npm run dev`).
  *
- * Usage: node dev/e2e/perf.mjs [studioUrl] [cpuThrottling=4]
+ * Usage: node dev/e2e/perf.mjs [studioUrl] [cpuThrottling=4] [--warm]
+ *   --warm: drag and drop once (unmeasured) before the measured drag, so the measurement leaves out
+ *   first-interaction costs (the document's first edit, first styles, JIT warm-up)
  */
 import {createRequire} from 'node:module'
 
 const require = createRequire(import.meta.url)
 const {chromium} = require('playwright')
 
-const studioUrl = process.argv[2] ?? 'http://localhost:3333'
-const throttling = Number(process.argv[3] ?? 4)
+const args = process.argv.slice(2).filter((arg) => !arg.startsWith('--'))
+const warm = process.argv.includes('--warm')
+const studioUrl = args[0] ?? 'http://localhost:3333'
+const throttling = Number(args[1] ?? 4)
 const LAKE = `https://localhost:${process.env.FAKE_LAKE_PORT || 3334}`
 // The fake lake uses a self-signed certificate
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const cases = [
+  // The last row: nothing moves out of its way, so this mostly measures pointer tracking
   {name: 'main menu (11 items)', doc: 'menu-main', drag: 'Contact', rows: 6},
+  // The first row, down past 6 rows and back: the tree re-renders and rows slide
+  {name: 'main menu, reorder (11 items)', doc: 'menu-main', drag: 'Home', rows: 6, warmUpBy: 1},
   {name: '500 items', doc: 'menu-big', drag: 'Group 3', rows: 8},
 ]
+
+const handleOf = (field, title) =>
+  field
+    .getByText(title, {exact: true})
+    .first()
+    .locator('xpath=ancestor::li[1]')
+    .locator('button')
+    .first()
+
+/**
+ * Drags the row one row up (or `by` rows down) and drops it there, unmeasured, so the measured drag
+ * isn't the first interaction and its drop isn't the document's first edit
+ */
+async function warmUp(page, handle, by = -1) {
+  const box = await handle.boundingBox()
+  const x = box.x + box.width / 2
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  for (let i = 1; i <= 10; i++) await page.mouse.move(x + 5, y + (i / 10) * by * 55)
+  await page.waitForTimeout(300)
+  await page.mouse.up()
+  await page.waitForTimeout(1500)
+}
 
 function stats(values) {
   const sorted = [...values].sort((a, b) => a - b)
@@ -48,6 +79,7 @@ async function run() {
     await field.getByText(testCase.drag, {exact: true}).first().waitFor({timeout: 180000})
     const renderMs = Date.now() - start
     await page.waitForTimeout(2000)
+    if (warm) await warmUp(page, handleOf(field, testCase.drag), testCase.warmUpBy)
 
     await cdp.send('Emulation.setCPUThrottlingRate', {rate: throttling})
 
@@ -72,11 +104,7 @@ async function run() {
         window.__perf[key] = performance.now()
       }, name)
 
-    const row = field
-      .getByText(testCase.drag, {exact: true})
-      .first()
-      .locator('xpath=ancestor::li[1]')
-    const handle = row.locator('button').first()
+    const handle = handleOf(field, testCase.drag)
     await handle.scrollIntoViewIfNeeded()
     const box = await handle.boundingBox()
     const x = box.x + box.width / 2
@@ -109,7 +137,7 @@ async function run() {
           .reduce((sum, task) => sum + task.duration, 0),
       )
     results.push({
-      case: testCase.name,
+      case: warm ? `${testCase.name}, warm` : testCase.name,
       renderMs,
       frames: frames.length,
       frameMs: stats(frames),
