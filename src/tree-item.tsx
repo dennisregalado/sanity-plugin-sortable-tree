@@ -47,9 +47,9 @@ const config = {
     x: 'start',
     y: 'center',
   },
-  transition: {
-    idle: true,
-  },
+  // The tree slides rows out of the way itself (useDragFlip): dnd-kit's transition only follows
+  // index changes, and misses rows that move when the dragged row enters or leaves a nested list
+  transition: null,
   // React owns the projected order, so dnd-kit's sortable plugins stay off: the optimistic DOM
   // reorder janks when rows move between nested subtree containers, and the tree moves keyboard
   // drags itself (one position per arrow key, see Tree's onDragMove).
@@ -59,6 +59,22 @@ const config = {
 // Sanity UI draws the card's border with this custom property: hide it unless the row is hovered
 const HIDDEN_BORDER_STYLE: React.CSSProperties = Object.fromEntries([
   ['--card-border-color', 'transparent'],
+])
+
+// The dragged row itself is lifted (dnd-kit's Feedback plugin moves it with the pointer), with the
+// border and shadow of the Studio's lifted array item
+// (sanity/src/core/form/inputs/arrays/layouts/RowLayout.tsx, `.moving &`)
+const LIFTED_STYLE: React.CSSProperties = Object.fromEntries([
+  ['--card-border-color', 'var(--card-shadow-umbra-color)'],
+  [
+    'boxShadow',
+    [
+      '0 0 0 0',
+      '0 8px 17px 2px var(--card-shadow-umbra-color)',
+      '0 3px 14px 2px var(--card-shadow-penumbra-color)',
+      '0 5px 5px -3px var(--card-shadow-ambient-color)',
+    ].join(', '),
+  ],
 ])
 
 function TreeItemComponent({
@@ -83,7 +99,7 @@ function TreeItemComponent({
   // Keyboard users reach Edit and Remove by tabbing into the row; touch screens can't hover
   const [hasFocus, setHasFocus] = useState(false)
   const readOnly = useMemo(() => member?.item?.readOnly, [member])
-  const {ref, handleRef, isDragSource, isDragging} = useSortable({
+  const {ref, handleRef, isDragging} = useSortable({
     ...config,
     id,
     index,
@@ -103,34 +119,15 @@ function TreeItemComponent({
   const shownMarkers = errors.length ? errors : warnings
 
   return (
-    <div
-      ref={ref}
-      style={
-        isDragging
-          ? {
-              zIndex: 1000,
-              position: 'relative',
-            }
-          : undefined
-      }
-      aria-hidden={isDragSource}
-    >
+    <div ref={ref}>
       <Card
         padding={1}
         radius={2}
         border
         // Like the Studio's array items: invalid rows take the critical (or caution) tone
-        tone={
-          isDragging
-            ? 'suggest'
-            : errors.length
-              ? 'critical'
-              : warnings.length
-                ? 'caution'
-                : 'default'
-        }
-        style={isHovering ? undefined : HIDDEN_BORDER_STYLE}
-        shadow={!isHovering && isDragging ? 5 : 0}
+        tone={errors.length ? 'critical' : warnings.length ? 'caution' : 'default'}
+        style={isDragging ? LIFTED_STYLE : isHovering ? undefined : HIDDEN_BORDER_STYLE}
+        shadow={0}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
         // Only keyboard focus: a mouse click also focuses the button it lands on
@@ -149,7 +146,7 @@ function TreeItemComponent({
               }
               animate
               // No tooltip mid-drag: it would follow the moving handle on every frame
-              disabled={isDragging || isDragSource}
+              disabled={isDragging}
               fallbackPlacements={['right', 'left']}
               placement="top"
               portal
@@ -161,6 +158,8 @@ function TreeItemComponent({
                 paddingX={2}
                 mode="bleed"
                 icon={DragHandleIcon}
+                // Pressed while its row is dragged, like the Studio's drag handle
+                selected={isDragging}
                 style={{pointerEvents: isDisabled ? 'none' : 'auto', cursor: 'all-scroll'}}
               />
             </Tooltip>

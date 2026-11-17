@@ -115,6 +115,16 @@ export const schemaTypes = [
     ],
   }),
   defineType({
+    // The Studio's own array input (no `options.tree`): the reference for how dragging looks
+    name: 'nativeMenu',
+    title: 'Native array menu',
+    type: 'document',
+    fields: [
+      title,
+      defineField({name: 'items', type: 'array', of: [defineArrayMember({type: 'menuItem'})]}),
+    ],
+  }),
+  defineType({
     name: 'fieldsMenu',
     title: 'Fields menu',
     type: 'document',
