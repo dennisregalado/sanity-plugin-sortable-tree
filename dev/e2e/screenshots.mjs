@@ -82,6 +82,15 @@ const scenarios = {
   'readonly': {url: docUrl('readOnlyMenu', 'menu-readonly')},
   'named': {url: docUrl('namedMenu', 'menu-named')},
   'mixed': {url: docUrl('mixedMenu', 'menu-mixed')},
+  'mixed-menu': {
+    url: docUrl('mixedMenu', 'menu-mixed'),
+    viewport: true,
+    async act(page, field) {
+      await field.getByRole('button', {name: 'Add item'}).last().click()
+      await page.getByRole('menuitem').first().waitFor()
+      await page.waitForTimeout(400)
+    },
+  },
   'malformed': {url: docUrl('menu', 'menu-malformed')},
 }
 

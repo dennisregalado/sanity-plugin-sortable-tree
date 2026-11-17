@@ -17,7 +17,7 @@ import {
 
 import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
-import {NewTreeItem} from './new-tree-item'
+import {type AddableType, NewTreeItem} from './new-tree-item'
 import {
   CHILDREN_FIELD,
   getAppendPatches,
@@ -113,6 +113,23 @@ function getArrayMemberSchemaType(arraySchemaType: any, typeName?: string) {
   }
 
   return memberTypes.length === 1 ? memberTypes[0] : undefined
+}
+
+const addableTypesCache = new WeakMap<object, AddableType[]>()
+
+/** The item types that can be added to an array, cached so memoized buttons stay stable */
+function getAddableTypes(arraySchemaType: any): AddableType[] {
+  if (!arraySchemaType || typeof arraySchemaType !== 'object') return []
+
+  let types = addableTypesCache.get(arraySchemaType)
+  if (!types) {
+    types = getArrayMemberSchemaTypes(arraySchemaType).flatMap((memberType) => {
+      const name = getSchemaTypeName(memberType)
+      return name ? [{name, title: memberType.title || name, icon: memberType.icon}] : []
+    })
+    addableTypesCache.set(arraySchemaType, types)
+  }
+  return types
 }
 
 function getChildrenArraySchemaType(objectSchemaType: any) {
@@ -430,7 +447,7 @@ export function Tree({
         if (parentItem?.readOnly || childrenField?.readOnly) return false
       }
 
-      return getArrayMemberSchemaType(getDestinationArraySchemaType(parentId)) !== undefined
+      return getAddableTypes(getDestinationArraySchemaType(parentId)).length > 0
     },
     [getDestinationArraySchemaType, memberById, readOnly],
   )
@@ -460,12 +477,15 @@ export function Tree({
   )
 
   const handleAddItem = useCallback(
-    (parentId: string | null) => {
+    (parentId: string | null, typeName?: string) => {
       updateProjectedItems(null)
 
       if (!canAddItemToParent(parentId)) return
 
-      const itemSchemaType = getArrayMemberSchemaType(getDestinationArraySchemaType(parentId))
+      const itemSchemaType = getArrayMemberSchemaType(
+        getDestinationArraySchemaType(parentId),
+        typeName,
+      )
       const parentPath = parentId === null ? null : treeMeta.pathById.get(parentId)
 
       if (!itemSchemaType || parentPath === undefined) return
@@ -639,6 +659,7 @@ export function Tree({
                         addItem={handleAddItem}
                         disabled={disabled || subtreeDisabled}
                         parentId={node.id}
+                        types={getAddableTypes(getDestinationArraySchemaType(node.id))}
                       />
                     </li>
                   )}
@@ -653,6 +674,7 @@ export function Tree({
       activeDragItemId,
       canAddItemToParent,
       dragSource,
+      getDestinationArraySchemaType,
       collapsedKeys,
       dragIndexById,
       handleAddItem,
@@ -874,7 +896,11 @@ export function Tree({
           )}
 
           <li style={{listStyle: 'none'}}>
-            <NewTreeItem addItem={handleAddItem} disabled={!canAddItemToParent(null)} />
+            <NewTreeItem
+              addItem={handleAddItem}
+              disabled={!canAddItemToParent(null)}
+              types={getAddableTypes(schemaType)}
+            />
           </li>
         </Grid>
       </Card>

@@ -50,7 +50,7 @@ const rowOf = (field, text) =>
   field.getByText(text, {exact: true}).first().locator('xpath=ancestor::li[1]')
 
 const tests = {
-  async 'removes an item with a single unset'(page, field) {
+  'removes an item with a single unset': async (page, field) => {
     const row = rowOf(field, 'Sale')
     await row.getByText('Sale', {exact: true}).first().hover()
     await row.locator('button').last().click()
@@ -75,7 +75,7 @@ const tests = {
     )
   },
 
-  async 'moves an item into another parent with unset + insert'(page, field) {
+  'moves an item into another parent with unset + insert': async (page, field) => {
     const handle = rowOf(field, 'Contact').locator('button').first()
     const target = rowOf(field, 'Team')
     const from = await handle.boundingBox()
@@ -106,7 +106,7 @@ const tests = {
     assert.ok(patches.some((patch) => patch.insert))
   },
 
-  async 'adds an item with an insert'(page, field) {
+  'adds an item with an insert': async (page, field) => {
     await field.getByRole('button', {name: 'Add item'}).last().click()
 
     const draft = await waitFor(async () => {
@@ -120,7 +120,22 @@ const tests = {
     assert.ok(patches.some((patch) => patch.insert?.after === 'items[-1]'))
   },
 
-  async 'opens nested items in the Studio dialog'(page, field) {
+  'adds the item type picked from the menu': {
+    doc: ['mixedMenu', 'menu-mixed'],
+    run: async (page, field) => {
+      await field.getByRole('button', {name: 'Add item'}).last().click()
+      await page.getByRole('menuitem', {name: 'Divider'}).click()
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-mixed')
+        return doc && doc.items.length === 4 && doc
+      }, 'a fourth root item')
+
+      assert.equal(draft.items[3]._type, 'menuDivider')
+    },
+  },
+
+  'opens nested items in the Studio dialog': async (page, field) => {
     await field.getByText('Dresses', {exact: true}).first().click()
     const dialog = page.getByRole('dialog').last()
     await dialog.waitFor()
@@ -135,14 +150,16 @@ async function run() {
   const browser = await chromium.launch()
   let failed = 0
 
-  for (const [name, test] of Object.entries(tests)) {
+  for (const [name, entry] of Object.entries(tests)) {
+    const {doc: [type, id] = ['menu', 'menu-main'], run: test} =
+      typeof entry === 'function' ? {run: entry} : entry
     await lake.reset()
     const context = await browser.newContext({
       ignoreHTTPSErrors: true,
       viewport: {width: 1100, height: 1400},
     })
     const page = await context.newPage()
-    await page.goto(`${studioUrl}/structure/menu;menu-main`)
+    await page.goto(`${studioUrl}/structure/${type};${id}`)
     const field = page.locator('[data-testid="field-items"]')
     await field.getByText('Home', {exact: true}).first().waitFor({timeout: 120000})
     await page.waitForTimeout(1500)
