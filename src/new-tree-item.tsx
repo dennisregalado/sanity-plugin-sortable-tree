@@ -66,12 +66,8 @@ function NewTreeItemComponent({
           ))}
         </Menu>
       }
-      popover={{
-        portal: true,
-        placement: 'bottom',
-        fallbackPlacements: ['top'],
-        matchReferenceWidth: true,
-      }}
+      // As wide as its items and centered under the button, like the row's "Add nested item" menu
+      popover={{portal: true, placement: 'bottom', fallbackPlacements: ['top']}}
     />
   )
 }
