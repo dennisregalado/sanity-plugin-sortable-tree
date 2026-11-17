@@ -7,7 +7,7 @@ const ROOT_MARGIN = '800px 0px'
 const INITIAL_ROWS = 60
 
 /** The nearest ancestor that scrolls vertically (null: the viewport) */
-function getScrollParent(element: HTMLElement | null): HTMLElement | null {
+export function getScrollParent(element: HTMLElement | null): HTMLElement | null {
   let current = element?.parentElement ?? null
   while (current) {
     const {overflowY} = getComputedStyle(current)
