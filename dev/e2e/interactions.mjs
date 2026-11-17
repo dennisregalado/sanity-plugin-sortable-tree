@@ -190,6 +190,8 @@ const tests = {
       }
       assert.ok(await last.isVisible(), 'the last group rendered after scrolling')
 
+      // Let the rows that just mounted settle before hovering
+      await page.waitForTimeout(800)
       await last.hover()
       await last
         .locator('xpath=ancestor::li[1]')

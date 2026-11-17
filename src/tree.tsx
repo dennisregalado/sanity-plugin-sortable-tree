@@ -95,6 +95,11 @@ function estimateHeight(node: TreeRenderNode, collapsedKeys: ReadonlySet<string>
  * every item on the path except the last one, which is the focused item itself.
  */
 function getFocusAncestorIds(focusPath: Path | undefined): string[] {
+  return getFocusItemIds(focusPath).slice(0, -1)
+}
+
+/** Tree ids of every item on `focusPath`: its parents and the focused item itself */
+function getFocusItemIds(focusPath: Path | undefined): string[] {
   const ids: string[] = []
   let id: string | null = null
 
@@ -107,7 +112,7 @@ function getFocusAncestorIds(focusPath: Path | undefined): string[] {
     if (focusPath?.[index + 1] !== CHILDREN_FIELD) break
   }
 
-  return ids.slice(0, -1)
+  return ids
 }
 
 /** Whether `children` holds data the tree skips: not an array, items without keys, or repeated keys */
@@ -424,6 +429,8 @@ export function Tree({
   const renderItems = projectedItems ?? baseRenderItems
   const renderTree = useMemo(() => buildRenderTree(renderItems), [renderItems])
   const containerRef = useRef<HTMLDivElement>(null)
+  // The focused item and its parents (tree ids), from the Studio's focus path
+  const focusedItemIds = useMemo(() => getFocusItemIds(focusPath), [focusPath])
   const windowing = useRowWindowing(
     containerRef,
     renderItems.length > WINDOWING_THRESHOLD,
@@ -742,12 +749,13 @@ export function Tree({
       const sortableIndex = dragIndexById.get(node.id) ?? node.index
       const sortableDisabled = disabled || !dragIndexById.has(node.id)
       const isDraggingTree = activeDragItemId === node.id && (dragSource?.children.length ?? 0) > 0
-      // The dragged row (and the rows containing it) stay mounted while dragging
+      // The dragged row and the focused row (and the rows containing them) always stay mounted
       const isDragPath =
         activeDragItemId !== null &&
         (activeDragItemId === node.id || activeDragItemId.startsWith(`${node.id}/`))
+      const isFocusPath = focusedItemIds.includes(node.id)
 
-      if (!windowing.isVisible(node.id) && !isDragPath) {
+      if (!windowing.isVisible(node.id) && !isDragPath && !isFocusPath) {
         return (
           <li key={`item-${node.id}`} data-tree-id={node.id} style={ROW_STYLE}>
             <div
@@ -846,6 +854,7 @@ export function Tree({
       sortable,
       t,
       treeMeta,
+      focusedItemIds,
       windowing,
     ],
   )
