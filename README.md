@@ -7,12 +7,13 @@ inside a single document.
 <!-- Screenshot/GIF: the tree input in the Studio (light and dark) -->
 
 - Drag to reorder and to change nesting, with a drag handle per item (pointer and keyboard).
-- Items are edited in the Studio's own dialogs, with the schema's previews and initial values.
+- Every row is the Studio's own array item: click it to edit it in the Studio's dialog, and use
+  its ⋯ menu to remove, copy, duplicate, or add an item before or after it, at any depth. Rows show
+  validation (including errors inside nested items), presence avatars and change indicators like
+  the Studio's array input, and read-only items open in a "View" dialog.
 - Lists with several item types get a type menu on "Add item".
-- Edit and Remove show on hover, on keyboard focus, and always on touch screens; items without
-  children get an "Add nested item" action.
-- Invalid items are highlighted like the Studio's own array items, and a collapsed item shows its
-  hidden children's errors.
+- Items without children get an "Add nested item" action, on hover, on keyboard focus, and always
+  on touch screens.
 - Expand all / Collapse all, and collapsed items open when the Studio focuses something inside
   them (e.g. jumping to a validation error).
 - Keyboard dragging: Space to pick up, up/down to move one position, left/right to change the
@@ -116,8 +117,11 @@ Set these in the array field's `options`:
 | `tree`     | `boolean` | `false` | Edit the array as a sortable tree.                                      |
 | `maxDepth` | `number`  | `3`     | How many levels deep items can be nested. `1` allows no nesting at all. |
 
-Sanity's own array options apply to the whole tree: `sortable: false` hides the drag handles, and
-`disableActions: ['add']` / `['remove']` hide the Add and Remove buttons.
+Sanity's own array options apply to the whole tree, nested items included: `sortable: false`
+hides the drag handles, and `disableActions` removes actions from every row's ⋯ menu (`'remove'`,
+`'copy'`, `'duplicate'`, `'addBefore'`, `'addAfter'`). `disableActions: ['add']` also hides the
+"Add item" and "Add nested item" buttons, and removes Duplicate and Add item before/after from the
+menu.
 
 ### How the data is stored
 
