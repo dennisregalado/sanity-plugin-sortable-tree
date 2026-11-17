@@ -184,18 +184,20 @@ means:
 
 References are edited in their row, without a dialog:
 
-- A picked reference shows the document's preview and status. Click it to open the document in a
-  pane to the right (in the structure tool). The pencil (**Replace reference**) swaps the row for
-  the Studio's reference search, with the current title selected. Pick a document to replace it,
-  or press Escape (or click elsewhere) to keep it.
-- An empty reference, for example one just added from the **Add item** menu, shows the Studio's
-  reference search. Adding a reference focuses its search. As in the
-  Studio's own array input, leaving an empty reference without picking anything removes it.
+- A picked reference looks like any other row: the referenced document's preview. Click it, or
+  its pencil (**Replace reference**), to search for another document. Pick one to replace it, or
+  press Escape (or click elsewhere) to keep the current one.
+- An empty reference, for example one just added from the **Add item** menu, shows the search.
+  Focusing it opens a popover listing the documents the reference can point to, newest first;
+  typing narrows it down to documents whose title has words starting with what you typed. Use
+  the arrow keys and Enter, or click, to pick one. Adding a reference focuses its search, and
+  leaving it without picking anything removes it again.
+- Picking a document that only exists as a draft makes the reference weak until that document is
+  published (`_weak` and `_strengthenOnPublish`, like the Studio's reference input).
 - Validation (such as `rule.required()`, or a reference to a missing document) shows on the row
   like any other item's. A reference to a document that doesn't exist reads "Document
   unavailable".
-- The row only picks existing documents: its reference search has no **Create** button (the tree
-  sets the reference type's `options.disableNew` for it). To make a new page, create it first.
+- The row only picks existing documents. To make a new page, create it first.
 
 **A link that needs children:** use a menu item with a reference _field_ plus `children`. It
 nests like any other item:

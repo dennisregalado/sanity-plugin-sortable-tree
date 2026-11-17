@@ -10,14 +10,21 @@ import {WarningOutlineIcon} from '@sanity/icons/WarningOutline'
 import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
 import {Tooltip} from '@sanity/ui/tooltip'
 import type React from 'react'
-import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {type ArrayOfObjectsItemMember, type Path, type SchemaType, useTranslation} from 'sanity'
+import {memo, useCallback, useMemo, useState} from 'react'
+import {
+  type ArrayOfObjectsItemMember,
+  type FormPatch,
+  type SchemaType,
+  set,
+  unset,
+  useTranslation,
+} from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
-import {MemberPreview, type RenderCallbacks, type RowFocus} from './member-preview'
+import {MemberPreview, type RenderCallbacks} from './member-preview'
 import {type AddableType, AddChildButton} from './new-tree-item'
 import type {PatchInput} from './patches'
-import {ReferenceValue} from './reference-value'
+import {ReferenceSearch, type ReferenceTarget, useReferenceAvailable} from './reference-search'
 import {FlattenedItem} from './types'
 import {isReferenceType} from './utils'
 import {collectValidation} from './validation'
@@ -35,7 +42,7 @@ export interface Props {
   onItemOpen?: (id: string) => void
   /** Focus the reference search once it shows (for a reference that was just added) */
   autoFocusSearch?: boolean
-  /** Applies patches from an input shown in the row (relative to the item) */
+  /** Applies patches from the row's reference search (relative to the item) */
   onItemPatch?: (id: string, patches: PatchInput) => void
   /** Whether the pointer can hover (false on touch screens): measured once for the whole tree */
   canHover?: boolean
@@ -48,8 +55,7 @@ export interface Props {
 
 const SORTABLE_PLUGINS: PluginConstructor[] = []
 const NO_TYPES: AddableType[] = []
-const NO_PATH: Path = []
-const REF_PATH: Path = ['_ref']
+const NO_TARGETS: SchemaType[] = []
 
 const config = {
   alignment: {
@@ -128,64 +134,35 @@ function TreeItemComponent({
   const errors = validation.filter((marker) => marker.level === 'error')
   const warnings = validation.filter((marker) => marker.level === 'warning')
   const shownMarkers = errors.length ? errors : warnings
-  // References are edited in the row itself, with the Studio's reference search (no dialog)
+  // References are edited in the row itself, with the reference search (no dialog)
   const isReference = isReferenceType(member.item.schemaType)
   const referenceId = isReference ? getReferenceId(member.item.value) : undefined
-  // "Replace" (or focusing the search of an empty reference) is the row's own state: see RowFocus
-  const [referenceFocusPath, setReferenceFocusPath] = useState<Path>(NO_PATH)
-  const handleReferenceFocus = useCallback((path: Path) => {
-    // Focusing `_ref` keeps the search open; anything else (picked, Escape, clicked outside) ends it
-    setReferenceFocusPath(path.length === 1 && path[0] === '_ref' ? REF_PATH : NO_PATH)
-  }, [])
-  const handleInputChange = useCallback(
-    (patches: PatchInput) => onItemPatch?.(id, patches),
-    [id, onItemPatch],
+  const referenceTargets = useMemo(
+    () => (isReference ? getReferenceTargets(member.item.schemaType) : NO_TARGETS),
+    [isReference, member.item.schemaType],
   )
-  const rowFocus = useMemo<RowFocus>(
-    () => ({
-      focusPath: referenceFocusPath,
-      onPathFocus: handleReferenceFocus,
-      onChange: handleInputChange,
-    }),
-    [handleInputChange, handleReferenceFocus, referenceFocusPath],
+  const referenceAvailable = useReferenceAvailable(referenceId, referenceTargets)
+  // Replacing a picked reference: the row shows the search until one is picked or it's left
+  const [replacing, setReplacing] = useState(false)
+  const searching = isReference && (!referenceId || replacing)
+  // Leaving the search of a reference that was just added, without picking, removes it again (like
+  // the Studio's array input does with an empty new item)
+  const handleSearchDone = useCallback(() => {
+    setReplacing(false)
+    if (!referenceId && autoFocusSearch) onRemove?.(id)
+  }, [autoFocusSearch, id, onRemove, referenceId])
+  const handlePick = useCallback(
+    (target: ReferenceTarget) => {
+      setReplacing(false)
+      onItemPatch?.(id, getReferencePatches(target, member.item.schemaType))
+    },
+    [id, member.item.schemaType, onItemPatch],
   )
-  const editingReference = isReference && (!referenceId || referenceFocusPath.length > 0)
-  const referenceSearchRef = useRef<HTMLDivElement>(null)
-  const focusSearchRef = useRef(false)
   // References open their search in the row; other items open in the Studio's dialog
   const handleOpen = useCallback(() => {
-    if (!isReference) {
-      onItemOpen?.(id)
-      return
-    }
-    focusSearchRef.current = true
-    setReferenceFocusPath(REF_PATH)
+    if (isReference) setReplacing(true)
+    else onItemOpen?.(id)
   }, [id, isReference, onItemOpen])
-  // The Studio's reference input only focuses itself when `_ref` gets focus after it mounts: focus
-  // its search once it's there. For a picked reference, wait until it shows the document's title
-  // (it fills that in once loaded, over anything typed before), then select it so typing replaces
-  // it, as the "Replace" action says.
-  const autoFocusedRef = useRef(false)
-  const waitForTitle = referenceId !== undefined
-  useEffect(() => {
-    const autoFocus = autoFocusSearch && !autoFocusedRef.current
-    if (!editingReference || !(focusSearchRef.current || autoFocus)) return undefined
-    focusSearchRef.current = false
-    autoFocusedRef.current = autoFocusedRef.current || autoFocusSearch
-    let frame = 0
-    let tries = 0
-    const focusInput = () => {
-      const input = referenceSearchRef.current?.querySelector<HTMLInputElement>('input')
-      if (input && (input.value || !waitForTitle || tries > 60)) {
-        input.focus()
-        input.select()
-      } else if (tries++ < 120) {
-        frame = requestAnimationFrame(focusInput)
-      }
-    }
-    focusInput()
-    return () => cancelAnimationFrame(frame)
-  }, [autoFocusSearch, editingReference, referenceFocusPath, waitForTitle])
 
   return (
     <div ref={ref}>
@@ -256,25 +233,15 @@ function TreeItemComponent({
               />
             </Tooltip>
           )}
-          {editingReference && !isDisabled ? (
-            // Like the Studio's array item for a reference: its title above the reference search
-            <Stack ref={referenceSearchRef} flex={1} gap={3} padding={2} style={{minWidth: 0}}>
-              <Text size={1} weight="medium">
-                {member.item.schemaType.title || member.item.schemaType.name}
-              </Text>
-              <MemberPreview member={member} callbacks={callbacks} rowFocus={rowFocus} />
-            </Stack>
-          ) : referenceId ? (
-            <Box flex={1} paddingX={1} style={{minWidth: 0}}>
-              <ReferenceValue
-                documentId={referenceId}
-                to={getReferenceTargets(member.item.schemaType)}
-                path={member.item.path}
-                disabled={isDisabled}
-                onReplace={handleOpen}
-              />
-            </Box>
+          {searching && !isDisabled ? (
+            <ReferenceSearch
+              to={referenceTargets}
+              autoFocus={replacing || autoFocusSearch}
+              onPick={handlePick}
+              onDone={handleSearchDone}
+            />
           ) : (
+            // A picked reference looks like any other item: its (referenced document's) preview
             <Button
               disabled={isDisabled}
               style={{minHeight: 32}}
@@ -282,12 +249,20 @@ function TreeItemComponent({
               mode="bleed"
               padding={1}
               paddingX={2}
-              onClick={() => onItemOpen?.(id)}
+              onClick={handleOpen}
             >
               <Flex align="center" justify="space-between" style={{width: '100%'}}>
-                <Box style={{marginLeft: -8, minWidth: 0}}>
-                  <MemberPreview member={member} callbacks={callbacks} />
-                </Box>
+                {referenceAvailable === false ? (
+                  <Box paddingY={2} style={{minWidth: 0}}>
+                    <Text muted size={1} textOverflow="ellipsis">
+                      {t('reference.unavailable')}
+                    </Text>
+                  </Box>
+                ) : (
+                  <Box style={{marginLeft: -8, minWidth: 0}}>
+                    <MemberPreview member={member} callbacks={callbacks} />
+                  </Box>
+                )}
               </Flex>
             </Button>
           )}
@@ -333,11 +308,11 @@ function TreeItemComponent({
           {onAddChild && showActions && (
             <AddChildButton id={id} onAdd={onAddChild} types={childTypes} />
           )}
-          {showActions && !isReference && (
+          {showActions && !searching && (
             <Tooltip
               content={
                 <Text muted size={1}>
-                  {t('edit')}
+                  {isReference ? t('reference.replace') : t('edit')}
                 </Text>
               }
               animate
@@ -346,8 +321,8 @@ function TreeItemComponent({
               portal
             >
               <Button
-                aria-label={t('edit')}
-                onClick={() => onItemOpen?.(id)}
+                aria-label={isReference ? t('reference.replace') : t('edit')}
+                onClick={handleOpen}
                 icon={EditIcon}
                 mode="bleed"
                 padding={2}
@@ -394,6 +369,26 @@ function getReferenceTargets(schemaType: unknown): SchemaType[] {
 
 function hasReferenceTargets(type: object): type is {to: SchemaType[]} {
   return 'to' in type && Array.isArray(type.to)
+}
+
+/** Sets `_ref`, weak until published when the document only exists as a draft */
+function getReferencePatches(target: ReferenceTarget, schemaType: unknown): FormPatch[] {
+  const weak =
+    typeof schemaType === 'object' && schemaType !== null && 'weak' in schemaType
+      ? schemaType.weak === true
+      : false
+  if (target.draftOnly) {
+    return [
+      set(true, ['_weak']),
+      set({type: target.type, ...(weak ? {weak: true} : {})}, ['_strengthenOnPublish']),
+      set(target.id, ['_ref']),
+    ]
+  }
+  return [
+    weak ? set(true, ['_weak']) : unset(['_weak']),
+    unset(['_strengthenOnPublish']),
+    set(target.id, ['_ref']),
+  ]
 }
 
 function getReferenceId(value: unknown): string | undefined {

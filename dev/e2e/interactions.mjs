@@ -66,7 +66,7 @@ async function dragRow(page, field, text, dx, dy) {
 /** Picks the document titled `title` in the open reference search */
 async function pickInSearch(page, query, title) {
   await page.keyboard.type(query, {delay: 50})
-  const option = page.locator('[data-ui="Popover"]').getByRole('option', {name: new RegExp(title)})
+  const option = page.locator('[data-ui="Popover"]').getByRole('button', {name: new RegExp(title)})
   await option.first().waitFor()
   await option.first().click()
 }
@@ -275,9 +275,9 @@ const tests = {
       await field.getByRole('button', {name: 'Add item'}).last().click()
       await page.getByRole('menuitem', {name: 'Page'}).click()
 
-      // The new row shows the Studio's reference search, focused
+      // The new row shows the reference search, focused
       await waitFor(
-        () => page.evaluate(() => document.activeElement?.dataset.testid === 'autocomplete'),
+        () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search'),
         'the reference search to be focused',
       )
       // The row only picks existing documents: no "Create" button
@@ -298,20 +298,45 @@ const tests = {
     },
   },
 
+  'removes a just-added reference left without picking': {
+    doc: PAGES,
+    run: async (page, field) => {
+      await field.getByRole('button', {name: 'Add item'}).last().click()
+      await page.getByRole('menuitem', {name: 'Page'}).click()
+      await waitFor(
+        () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search'),
+        'the reference search to be focused',
+      )
+      await page.waitForTimeout(500)
+      await page.keyboard.press('Escape')
+
+      await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-pages')
+        return doc?.items.length === 5
+      }, 'the empty reference removed again')
+      // The fixture's own empty reference stays
+      assert.equal(await field.getByRole('textbox', {name: 'Search'}).count(), 1)
+    },
+  },
+
   'replaces a nested reference in the row, with patches at its path': {
     doc: PAGES,
     run: async (page, field) => {
-      await rowOf(field, 'Shoes').getByRole('button', {name: 'Replace reference'}).click()
-      // The search opens with the current page's title selected, so typing replaces it
+      const shoes = rowOf(field, 'Shoes')
+      // Escape leaves the search and keeps the reference
+      await shoes.getByText('Shoes', {exact: true}).first().click()
       await waitFor(
-        () =>
-          page.evaluate(() => {
-            const input = document.activeElement
-            return (
-              input?.value === 'Shoes' && input.selectionStart === 0 && input.selectionEnd === 5
-            )
-          }),
-        'the search to show "Shoes", selected',
+        () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search'),
+        'clicking the row to open its search',
+      )
+      await page.keyboard.press('Escape')
+      await shoes.getByText('Shoes', {exact: true}).first().waitFor()
+
+      await shoes.getByText('Shoes', {exact: true}).first().hover()
+      await shoes.getByRole('button', {name: 'Replace reference'}).click()
+      await waitFor(
+        () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search'),
+        'the reference search to be focused',
       )
       await pickInSearch(page, 'Jour', 'Journal')
 
