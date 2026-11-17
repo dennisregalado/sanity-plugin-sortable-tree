@@ -124,6 +124,20 @@ const tests = {
     assert.deepEqual(keys(draft.items[3].children), ['team'])
   },
 
+  'adds a nested item to an item without children': async (page, field) => {
+    const row = rowOf(field, 'Home')
+    await row.getByText('Home', {exact: true}).first().hover()
+    await row.getByRole('button', {name: 'Add nested item'}).click()
+
+    const draft = await waitFor(async () => {
+      const doc = await lake.doc('drafts.menu-main')
+      return doc && doc.items[0].children?.length === 1 && doc
+    }, 'a child under Home')
+
+    assert.equal(draft.items[0].children[0]._type, 'menuItem')
+    assert.deepEqual(keys(draft.items), ['home', 'shop', 'about', 'contact'])
+  },
+
   'adds an item with an insert': async (page, field) => {
     await field.getByRole('button', {name: 'Add item'}).last().click()
 

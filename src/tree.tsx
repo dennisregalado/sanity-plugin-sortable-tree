@@ -678,6 +678,15 @@ export function Tree({
               onRemove={removeDisabled ? undefined : handleRemove}
               sortable={sortable}
               callbacks={renderCallbacks}
+              // Items without a visible nested "Add item" button (no children yet, or collapsed)
+              onAddChild={
+                (!hasRealChildren || isCollapsed) &&
+                node.depth < maxDepth - 1 &&
+                canAddItemToParent(node.id)
+                  ? handleAddItem
+                  : undefined
+              }
+              childTypes={getAddableTypes(getChildrenArraySchemaType(member.item.schemaType))}
             />
           )}
           {treeMeta.hasInvalidChildren.has(node.id) && !isDraggingTree && (

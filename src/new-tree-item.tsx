@@ -1,6 +1,7 @@
 import {AddIcon} from '@sanity/icons/Add'
-import {Button} from '@sanity/ui'
+import {Button, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
+import {Tooltip} from '@sanity/ui/tooltip'
 import {type ComponentType, memo, type ReactNode, useCallback, useId} from 'react'
 import {useTranslation} from 'sanity'
 
@@ -76,3 +77,61 @@ function NewTreeItemComponent({
 }
 
 export const NewTreeItem = memo(NewTreeItemComponent)
+
+interface AddChildButtonProps {
+  id: string
+  onAdd: (id: string, typeName?: string) => void
+  types: AddableType[]
+}
+
+/** Row action that adds a nested item, with a type menu when several types are allowed */
+export function AddChildButton({id, onAdd, types}: AddChildButtonProps): React.JSX.Element {
+  const {t} = useTranslation(sortableTreeLocaleNamespace)
+  const menuId = useId()
+
+  const button = (
+    <Button
+      aria-label={t('add-child')}
+      icon={AddIcon}
+      mode="bleed"
+      padding={2}
+      onClick={types.length > 1 ? undefined : () => onAdd(id)}
+    />
+  )
+
+  return (
+    <Tooltip
+      content={
+        <Text muted size={1}>
+          {t('add-child')}
+        </Text>
+      }
+      animate
+      fallbackPlacements={['right', 'left']}
+      placement="top"
+      portal
+    >
+      {types.length > 1 ? (
+        <MenuButton
+          id={menuId}
+          button={button}
+          menu={
+            <Menu>
+              {types.map((type) => (
+                <MenuItem
+                  key={type.name}
+                  icon={type.icon}
+                  text={type.title}
+                  onClick={() => onAdd(id, type.name)}
+                />
+              ))}
+            </Menu>
+          }
+          popover={{portal: true, placement: 'bottom-end'}}
+        />
+      ) : (
+        button
+      )}
+    </Tooltip>
+  )
+}

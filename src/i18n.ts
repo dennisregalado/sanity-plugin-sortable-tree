@@ -21,6 +21,8 @@ export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
   resources: {
     /** Button that adds an item to the end of a list */
     'add-item': 'Add item',
+    /** Tooltip and label for the row action that adds an item inside this one */
+    'add-child': 'Add nested item',
     /** Tooltip and label for the button that collapses an item's children */
     'collapse': 'Collapse',
     /** Tooltip and label for the drag handle */

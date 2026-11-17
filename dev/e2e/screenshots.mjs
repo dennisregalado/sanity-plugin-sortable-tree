@@ -28,6 +28,12 @@ const scenarios = {
       await field.getByText('Shop', {exact: true}).first().hover()
     },
   },
+  'main-hover-leaf': {
+    url: docUrl('menu', 'menu-main'),
+    async act(page, field) {
+      await field.getByText('Home', {exact: true}).first().hover()
+    },
+  },
   'main-collapsed': {
     url: docUrl('menu', 'menu-main'),
     async act(page, field) {

@@ -15,6 +15,7 @@ import {type ArrayOfObjectsItemMember, useTranslation} from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
+import {type AddableType, AddChildButton} from './new-tree-item'
 import {FlattenedItem} from './types'
 import {useCanHover} from './use-can-hover'
 import {collectValidation} from './validation'
@@ -32,9 +33,13 @@ export interface Props {
   onItemOpen?: (id: string) => void
   /** False hides the drag handle (`options.sortable: false`) */
   sortable?: boolean
+  /** Adds a nested item (with the type picked from `childTypes` when there are several) */
+  onAddChild?: (id: string, typeName?: string) => void
+  childTypes?: AddableType[]
 }
 
 const SORTABLE_PLUGINS: PluginConstructor[] = []
+const NO_TYPES: AddableType[] = []
 
 const config = {
   alignment: {
@@ -66,6 +71,8 @@ function TreeItemComponent({
   onItemOpen,
   callbacks,
   sortable = true,
+  onAddChild,
+  childTypes = NO_TYPES,
 }: Props) {
   const {id, collapsed, depth, parentId} = item
   const {t} = useTranslation(sortableTreeLocaleNamespace)
@@ -214,6 +221,9 @@ function TreeItemComponent({
               />
             </Tooltip>
           )}
+          {onAddChild && showActions && (
+            <AddChildButton id={id} onAdd={onAddChild} types={childTypes} />
+          )}
           {showActions && (
             <Tooltip
               content={
@@ -277,6 +287,8 @@ export const TreeItem = memo(TreeItemComponent, (previous, next) => {
     previous.onCollapse === next.onCollapse &&
     previous.onItemOpen === next.onItemOpen &&
     previous.callbacks === next.callbacks &&
-    previous.sortable === next.sortable
+    previous.sortable === next.sortable &&
+    previous.onAddChild === next.onAddChild &&
+    previous.childTypes === next.childTypes
   )
 })
