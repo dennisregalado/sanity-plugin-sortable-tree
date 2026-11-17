@@ -58,3 +58,8 @@ yalc.lock
 
 # Compiled plugin
 dist
+
+# Test Studio artifacts
+interaction-failure-*.png
+studio.log
+screenshots
