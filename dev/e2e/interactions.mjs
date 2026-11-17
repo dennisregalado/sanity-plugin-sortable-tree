@@ -138,6 +138,17 @@ const tests = {
     assert.deepEqual(keys(draft.items), ['home', 'shop', 'about', 'contact'])
   },
 
+  'collapses and expands everything': async (page, field) => {
+    const dresses = field.getByText('Dresses', {exact: true}).first()
+    await field.getByRole('button', {name: 'Collapse all'}).click()
+    await waitFor(async () => !(await dresses.isVisible()), 'nested items hidden')
+    await field.getByRole('button', {name: 'Expand all'}).click()
+    await waitFor(() => dresses.isVisible(), 'nested items shown again')
+
+    // Expanding and collapsing is view state: nothing is written
+    assert.equal(await lake.doc('drafts.menu-main'), null)
+  },
+
   'adds an item with an insert': async (page, field) => {
     await field.getByRole('button', {name: 'Add item'}).last().click()
 

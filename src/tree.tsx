@@ -2,8 +2,11 @@ import {configure} from '@dnd-kit/abstract'
 import {Accessibility, defaultPreset} from '@dnd-kit/dom'
 import {isKeyboardEvent} from '@dnd-kit/dom/utilities'
 import {DragDropProvider, DragOverlay} from '@dnd-kit/react'
-import {Box, Card, Grid, Text} from '@sanity/ui'
+import {DoubleChevronDownIcon} from '@sanity/icons/DoubleChevronDown'
+import {DoubleChevronUpIcon} from '@sanity/icons/DoubleChevronUp'
+import {Box, Button, Card, Flex, Grid, Text} from '@sanity/ui'
 import {useToast} from '@sanity/ui/toast'
+import {Tooltip} from '@sanity/ui/tooltip'
 import {randomKey} from '@sanity/util/content'
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import {
@@ -63,6 +66,26 @@ interface TreeRenderNode extends TreeNodePosition {
 
 const COLLAPSE_DURATION_MS = 250
 const NO_ITEMS: FlattenedItem[] = []
+
+/**
+ * Tree ids of the items that must be expanded to show `focusPath` (relative to the root array):
+ * every item on the path except the last one, which is the focused item itself.
+ */
+function getFocusAncestorIds(focusPath: Path | undefined): string[] {
+  const ids: string[] = []
+  let id: string | null = null
+
+  for (let index = 0; index < (focusPath?.length ?? 0); index += 2) {
+    const segment = focusPath?.[index]
+    if (!segment || typeof segment !== 'object' || !('_key' in segment)) break
+
+    id = id ? `${id}/${segment._key}` : segment._key
+    ids.push(id)
+    if (focusPath?.[index + 1] !== CHILDREN_FIELD) break
+  }
+
+  return ids.slice(0, -1)
+}
 
 /** Whether `children` holds data the tree skips: not an array, items without keys, or repeated keys */
 function hasUnshowableChildren(children: unknown): boolean {
@@ -250,6 +273,8 @@ export function Tree({
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() =>
     collectDefaultCollapsedKeys(items),
   )
+  // Items expanded to show the focus: the stored `collapsed: true` mustn't collapse them again
+  const [focusExpandedIds, setFocusExpandedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [projectedItems, setProjectedItems] = useState<FlattenedItem[] | null>(null)
   // The dragged item and its children, for rendering (the refs below are for event handlers)
   const [dragSource, setDragSource] = useState<{
@@ -262,6 +287,7 @@ export function Tree({
   const toast = useToast()
   const {t} = useTranslation(sortableTreeLocaleNamespace)
   const {
+    focusPath,
     renderAnnotation,
     renderBlock,
     renderField,
@@ -345,7 +371,11 @@ export function Tree({
       }
 
       for (const key of defaultCollapsedKeys) {
-        if (!manuallyToggledCollapsedKeysRef.current.has(key) && !nextKeys.has(key)) {
+        if (
+          !manuallyToggledCollapsedKeysRef.current.has(key) &&
+          !focusExpandedIds.has(key) &&
+          !nextKeys.has(key)
+        ) {
           nextKeys.add(key)
           changed = true
         }
@@ -359,7 +389,7 @@ export function Tree({
         manuallyToggledCollapsedKeysRef.current.delete(key)
       }
     }
-  }, [items])
+  }, [focusExpandedIds, items])
 
   const baseDragItems = useMemo(() => flattenTree(items, collapsedKeys), [collapsedKeys, items])
   const baseRenderItems = useMemo(
@@ -496,6 +526,30 @@ export function Tree({
   const sourceItem = useRef<FlattenedItem | null>(null)
   const sourceChildren = useRef<FlattenedItem[]>([])
   const sourceDescendantDepth = useRef(0)
+
+  const handleExpandAll = useCallback(() => {
+    updateProjectedItems(null)
+    for (const id of treeMeta.hasChildren) manuallyToggledCollapsedKeysRef.current.add(id)
+    setCollapsedKeys(new Set())
+  }, [treeMeta, updateProjectedItems])
+
+  const handleCollapseAll = useCallback(() => {
+    updateProjectedItems(null)
+    for (const id of treeMeta.hasChildren) manuallyToggledCollapsedKeysRef.current.add(id)
+    setCollapsedKeys(new Set(treeMeta.hasChildren))
+  }, [treeMeta, updateProjectedItems])
+
+  // When the Studio focuses something inside a collapsed item (e.g. jumping to a validation error),
+  // expand the items around it. Adjusting state while rendering, as React recommends for props.
+  const [previousFocusPath, setPreviousFocusPath] = useState(focusPath)
+  if (focusPath !== previousFocusPath) {
+    setPreviousFocusPath(focusPath)
+    const ancestors = getFocusAncestorIds(focusPath)
+    if (ancestors.some((id) => collapsedKeys.has(id))) {
+      setFocusExpandedIds(new Set([...focusExpandedIds, ...ancestors]))
+      setCollapsedKeys(new Set([...collapsedKeys].filter((id) => !ancestors.includes(id))))
+    }
+  }
 
   const handleCollapse = useCallback(
     (id: string) => {
@@ -1007,14 +1061,69 @@ export function Tree({
             </Box>
           )}
 
-          {!addDisabled && (
+          {treeMeta.hasChildren.size > 0 ? (
+            // With nested items: "Expand all" / "Collapse all" next to "Add item"
             <li style={{listStyle: 'none'}}>
-              <NewTreeItem
-                addItem={handleAddItem}
-                disabled={!canAddItemToParent(null)}
-                types={getAddableTypes(schemaType)}
-              />
+              <Flex gap={1}>
+                {!addDisabled && (
+                  <Box flex={1}>
+                    <NewTreeItem
+                      addItem={handleAddItem}
+                      disabled={!canAddItemToParent(null)}
+                      types={getAddableTypes(schemaType)}
+                    />
+                  </Box>
+                )}
+                <Tooltip
+                  content={
+                    <Text muted size={1}>
+                      {t('expand-all')}
+                    </Text>
+                  }
+                  animate
+                  placement="top"
+                  portal
+                >
+                  <Button
+                    aria-label={t('expand-all')}
+                    disabled={collapsedKeys.size === 0}
+                    icon={DoubleChevronDownIcon}
+                    mode="ghost"
+                    padding={2}
+                    onClick={handleExpandAll}
+                  />
+                </Tooltip>
+                <Tooltip
+                  content={
+                    <Text muted size={1}>
+                      {t('collapse-all')}
+                    </Text>
+                  }
+                  animate
+                  placement="top"
+                  portal
+                >
+                  <Button
+                    aria-label={t('collapse-all')}
+                    disabled={[...treeMeta.hasChildren].every((id) => collapsedKeys.has(id))}
+                    icon={DoubleChevronUpIcon}
+                    mode="ghost"
+                    padding={2}
+                    onClick={handleCollapseAll}
+                  />
+                </Tooltip>
+              </Flex>
             </li>
+          ) : (
+            !addDisabled && (
+              <li style={{listStyle: 'none'}}>
+                <NewTreeItem
+                  addItem={handleAddItem}
+                  disabled={!canAddItemToParent(null)}
+                  types={getAddableTypes(schemaType)}
+                />
+              </li>
+            )
           )}
         </Grid>
       </Card>

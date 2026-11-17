@@ -34,6 +34,14 @@ const scenarios = {
       await field.getByText('Home', {exact: true}).first().hover()
     },
   },
+  'main-collapsed-all': {
+    url: docUrl('menu', 'menu-main'),
+    async act(page, field) {
+      await field.getByRole('button', {name: 'Collapse all'}).click()
+      await page.mouse.move(0, 0)
+      await page.waitForTimeout(700)
+    },
+  },
   'main-collapsed': {
     url: docUrl('menu', 'menu-main'),
     async act(page, field) {
