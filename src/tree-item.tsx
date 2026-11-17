@@ -118,7 +118,16 @@ function TreeItemComponent({
         padding={1}
         radius={2}
         border
-        tone={isDragging ? 'suggest' : 'default'}
+        // Like the Studio's array items: invalid rows take the critical (or caution) tone
+        tone={
+          isDragging
+            ? 'suggest'
+            : errors.length
+              ? 'critical'
+              : warnings.length
+                ? 'caution'
+                : 'default'
+        }
         style={isHovering ? undefined : HIDDEN_BORDER_STYLE}
         shadow={!isHovering && isDragging ? 5 : 0}
         onMouseEnter={() => setHovering(true)}
@@ -194,11 +203,20 @@ function TreeItemComponent({
           {shownMarkers.length > 0 && (
             <Tooltip
               content={
-                <Stack gap={2} padding={1}>
-                  {shownMarkers.slice(0, 3).map((marker) => (
-                    <Text key={`${marker.message}-${JSON.stringify(marker.path)}`} size={1}>
-                      {marker.message}
-                    </Text>
+                <Stack gap={3} padding={1}>
+                  {shownMarkers.slice(0, 5).map((marker) => (
+                    <Flex
+                      key={`${marker.message}-${JSON.stringify(marker.path)}`}
+                      align="center"
+                      gap={2}
+                    >
+                      <Card tone={marker.level === 'error' ? 'critical' : 'caution'}>
+                        <Text size={1}>
+                          {marker.level === 'error' ? <ErrorOutlineIcon /> : <WarningOutlineIcon />}
+                        </Text>
+                      </Card>
+                      <Text size={1}>{marker.message}</Text>
+                    </Flex>
                   ))}
                 </Stack>
               }
