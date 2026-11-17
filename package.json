@@ -1,6 +1,6 @@
 {
   "name": "sanity-plugin-sortable-tree",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Sortable tree input for Sanity arrays",
   "keywords": [
     "sanity",
