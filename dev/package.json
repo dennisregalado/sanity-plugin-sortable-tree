@@ -1,0 +1,13 @@
+{
+  "name": "sanity-plugin-sortable-tree-test-studio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Offline test Studio for developing the plugin. Uses the root node_modules (dev/node_modules is a symlink).",
+  "type": "module",
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "sanity": "^6.23.0",
+    "styled-components": "^6.4.3"
+  }
+}

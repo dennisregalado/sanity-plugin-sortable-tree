@@ -1,0 +1,112 @@
+/**
+ * Captures screenshots of the tree input in the test Studio, for reviewing visual changes.
+ *
+ * Needs the fake lake (`node dev/fake-lake/server.mjs`) and a Studio (`sanity dev` in dev/).
+ *
+ * Usage: node dev/e2e/screenshots.mjs <outDir> [studioUrl] [scenario...]
+ */
+import {mkdirSync} from 'node:fs'
+import {createRequire} from 'node:module'
+
+const require = createRequire(import.meta.url)
+const {chromium} = require('playwright')
+
+const [outDir = 'screenshots', studioUrl = 'http://localhost:3333', ...only] = process.argv.slice(2)
+const LAKE = 'https://fakelake.localhost:3334'
+
+const docUrl = (type, id) => `${studioUrl}/structure/${type};${id}`
+
+/** Each scenario opens a document, optionally interacts, and returns what to capture */
+const scenarios = {
+  'main': {url: docUrl('menu', 'menu-main')},
+  'main-hover': {
+    url: docUrl('menu', 'menu-main'),
+    async act(page, field) {
+      await field.getByText('Shop', {exact: true}).first().hover()
+    },
+  },
+  'main-collapsed': {
+    url: docUrl('menu', 'menu-main'),
+    async act(page, field) {
+      // the collapse button sits right before the "Shop" preview
+      const row = field.locator('li', {hasText: 'Shop'}).first()
+      await row.locator('button').nth(1).click()
+      await page.mouse.move(0, 0)
+      await page.waitForTimeout(600)
+    },
+  },
+  'main-dragging': {
+    url: docUrl('menu', 'menu-main'),
+    async act(page, field) {
+      const row = field.locator('li', {hasText: 'Contact'}).first()
+      const handle = row.locator('button').first()
+      const box = await handle.boundingBox()
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width / 2 + 10, box.y - 20, {steps: 5})
+      await page.mouse.move(box.x + box.width / 2 + 60, box.y - 120, {steps: 10})
+      await page.waitForTimeout(400)
+    },
+    async after(page) {
+      await page.mouse.up()
+    },
+  },
+  'main-dialog': {
+    url: docUrl('menu', 'menu-main'),
+    viewport: true,
+    async act(page, field) {
+      await field.getByText('Women', {exact: true}).first().click()
+      await page.getByRole('dialog').first().waitFor()
+      await page.waitForTimeout(600)
+    },
+  },
+  'empty': {url: docUrl('menu', 'menu-empty')},
+  'readonly': {url: docUrl('readOnlyMenu', 'menu-readonly')},
+  'named': {url: docUrl('namedMenu', 'menu-named')},
+  'mixed': {url: docUrl('mixedMenu', 'menu-mixed')},
+  'malformed': {url: docUrl('menu', 'menu-malformed')},
+}
+
+async function run() {
+  mkdirSync(outDir, {recursive: true})
+  const browser = await chromium.launch()
+  const names = only.length ? only : Object.keys(scenarios)
+
+  for (const scheme of ['light', 'dark']) {
+    for (const name of names) {
+      const scenario = scenarios[name]
+      await fetch(`${LAKE}/__fake/reset`, {method: 'POST'}).catch(() => {})
+      const context = await browser.newContext({
+        ignoreHTTPSErrors: true,
+        viewport: {width: 1100, height: 1400},
+        deviceScaleFactor: 2,
+        colorScheme: scheme,
+      })
+      const page = await context.newPage()
+      const errors = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      await page.goto(scenario.url)
+      const field = page.locator('[data-testid="field-items"]')
+      await field.waitFor({timeout: 120000})
+      // previews resolve asynchronously; wait for the network to settle
+      await page.waitForLoadState('networkidle').catch(() => {})
+      await page.waitForTimeout(1000)
+      // keep the caret and toasts out of the picture
+      await page.addStyleTag({content: '*{caret-color:transparent!important}'})
+      await page.mouse.move(0, 0)
+
+      if (scenario.act) await scenario.act(page, field)
+      const file = `${outDir}/${name}.${scheme}.png`
+      await (scenario.viewport ? page.screenshot({path: file}) : field.screenshot({path: file}))
+      if (scenario.after) await scenario.after(page)
+      console.log(`${file}${errors.length ? `  page errors: ${errors.join(' | ')}` : ''}`)
+      await context.close()
+    }
+  }
+  await browser.close()
+}
+
+run().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
