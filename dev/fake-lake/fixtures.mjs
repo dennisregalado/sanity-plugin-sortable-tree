@@ -44,6 +44,17 @@ export const fixtures = [
   {_id: 'menu-main', _type: 'menu', title: 'Main menu', items: mainMenu},
   {_id: 'menu-empty', _type: 'menu', title: 'Empty menu', items: []},
   {
+    _id: 'menu-validation',
+    _type: 'menu',
+    title: 'Validation',
+    items: [
+      item('home', 'Home', '/'),
+      item('shop', 'Shop', '/shop', [{_key: 'untitled', _type: 'menuItem', url: '/shop/new'}]),
+      item('about', 'About', '/about', [{_key: 'untitled2', _type: 'menuItem', url: '/about/x'}]),
+      item('contact', 'Contact', '/contact'),
+    ],
+  },
+  {
     _id: 'menu-options',
     _type: 'optionsMenu',
     title: 'sortable: false, disableActions: add, remove',

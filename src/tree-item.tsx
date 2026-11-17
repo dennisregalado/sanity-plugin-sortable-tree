@@ -4,8 +4,10 @@ import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {ChevronRightIcon} from '@sanity/icons/ChevronRight'
 import {DragHandleIcon} from '@sanity/icons/DragHandle'
 import {EditIcon} from '@sanity/icons/Edit'
+import {ErrorOutlineIcon} from '@sanity/icons/ErrorOutline'
 import {TrashIcon} from '@sanity/icons/Trash'
-import {Box, Button, Card, Flex, Text} from '@sanity/ui'
+import {WarningOutlineIcon} from '@sanity/icons/WarningOutline'
+import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
 import {Tooltip} from '@sanity/ui/tooltip'
 import type React from 'react'
 import {memo, useMemo, useState} from 'react'
@@ -15,6 +17,7 @@ import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
 import {FlattenedItem} from './types'
 import {useCanHover} from './use-can-hover'
+import {collectValidation} from './validation'
 
 export interface Props {
   item: Pick<FlattenedItem, 'id' | 'collapsed' | 'depth' | 'parentId'>
@@ -85,6 +88,11 @@ function TreeItemComponent({
 
   const isDisabled = disabled || readOnly
   const showActions = !isDisabled && (isHovering || hasFocus || !canHover)
+  // Errors and warnings in the item's fields; a collapsed item also shows its hidden children's
+  const validation = useMemo(() => collectValidation(member.item, collapsed), [member, collapsed])
+  const errors = validation.filter((marker) => marker.level === 'error')
+  const warnings = validation.filter((marker) => marker.level === 'warning')
+  const shownMarkers = errors.length ? errors : warnings
 
   return (
     <div
@@ -176,6 +184,36 @@ function TreeItemComponent({
               </Box>
             </Flex>
           </Button>
+          {shownMarkers.length > 0 && (
+            <Tooltip
+              content={
+                <Stack gap={2} padding={1}>
+                  {shownMarkers.slice(0, 3).map((marker) => (
+                    <Text key={`${marker.message}-${JSON.stringify(marker.path)}`} size={1}>
+                      {marker.message}
+                    </Text>
+                  ))}
+                </Stack>
+              }
+              animate
+              fallbackPlacements={['right', 'left']}
+              placement="top"
+              portal
+            >
+              <Button
+                aria-label={
+                  errors.length
+                    ? t('validation.errors', {count: errors.length})
+                    : t('validation.warnings', {count: warnings.length})
+                }
+                icon={errors.length ? ErrorOutlineIcon : WarningOutlineIcon}
+                mode="bleed"
+                padding={2}
+                tone={errors.length ? 'critical' : 'caution'}
+                onClick={() => onItemOpen?.(id)}
+              />
+            </Tooltip>
+          )}
           {showActions && (
             <Tooltip
               content={

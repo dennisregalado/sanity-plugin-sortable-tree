@@ -38,6 +38,11 @@ export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
     'item-count_other': '{{count}} items',
     /** Shown under an item whose nested items can't be shown (missing or repeated keys, wrong type) */
     'invalid-children': "Some nested items can't be shown here. Open this item to fix them.",
+    /** Label for the icon on items with validation errors or warnings */
+    'validation.errors_one': '{{count}} error',
+    'validation.errors_other': '{{count}} errors',
+    'validation.warnings_one': '{{count}} warning',
+    'validation.warnings_other': '{{count}} warnings',
     /** Fallback title for items without one */
     'untitled': 'Untitled',
     /** Toast when the schema's initial value for a new item can't be resolved */

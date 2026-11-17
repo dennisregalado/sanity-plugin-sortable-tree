@@ -107,6 +107,17 @@ const scenarios = {
     },
   },
   'empty': {url: docUrl('menu', 'menu-empty')},
+  'validation': {url: docUrl('menu', 'menu-validation')},
+  'validation-collapsed': {
+    url: docUrl('menu', 'menu-validation'),
+    async act(page, field) {
+      // Collapse "About": its hidden child's error shows on the "About" row
+      const row = field.getByText('About', {exact: true}).first().locator('xpath=ancestor::li[1]')
+      await row.locator('button').nth(1).click()
+      await page.mouse.move(0, 0)
+      await page.waitForTimeout(600)
+    },
+  },
   'options': {url: docUrl('optionsMenu', 'menu-options')},
   'options-hover': {
     url: docUrl('optionsMenu', 'menu-options'),
