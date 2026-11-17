@@ -24,6 +24,24 @@ const mainMenu = [
   item('contact', 'Contact', '/contact'),
 ]
 
+// Longer than the Studio's default of 4 at the root and under "Shop": "Show all N items"
+const longMenu = [
+  item('home', 'Home', '/'),
+  item('shop', 'Shop', '/shop', [
+    item('women', 'Women', '/shop/women'),
+    item('men', 'Men', '/shop/men'),
+    item('kids', 'Kids', '/shop/kids'),
+    item('living', 'Home & living', '/shop/living'),
+    item('beauty', 'Beauty', '/shop/beauty'),
+    item('sale', 'Sale', '/shop/sale'),
+  ]),
+  item('journal', 'Journal', '/journal'),
+  item('stores', 'Stores', '/stores'),
+  item('about', 'About', '/about'),
+  item('careers', 'Careers', '/careers'),
+  item('contact', 'Contact', '/contact'),
+]
+
 // Items with an untitled (invalid) child each under "Shop" and "About"
 const validationItems = [
   item('home', 'Home', '/'),
@@ -135,6 +153,13 @@ export const fixtures = [
   },
   // The Studio's own array input with the same items, as a reference for dragging
   {_id: 'menu-native', _type: 'nativeMenu', title: 'Native array input', items: mainMenu},
+  {_id: 'menu-long', _type: 'menu', title: 'Long menu', items: longMenu},
+  {
+    _id: 'menu-native-long',
+    _type: 'nativeMenu',
+    title: 'Native array input, long',
+    items: longMenu,
+  },
   {
     _id: 'menu-native-validation',
     _type: 'nativeMenu',

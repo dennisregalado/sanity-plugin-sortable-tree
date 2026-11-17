@@ -2,11 +2,8 @@ import {configure} from '@dnd-kit/abstract'
 import {Accessibility, defaultPreset, Feedback} from '@dnd-kit/dom'
 import {isKeyboardEvent} from '@dnd-kit/dom/utilities'
 import {DragDropProvider} from '@dnd-kit/react'
-import {DoubleChevronDownIcon} from '@sanity/icons/DoubleChevronDown'
-import {DoubleChevronUpIcon} from '@sanity/icons/DoubleChevronUp'
-import {Box, Button, Card, Flex, Grid, Text} from '@sanity/ui'
+import {Box, Card, Grid, Text} from '@sanity/ui'
 import {useToast} from '@sanity/ui/toast'
-import {Tooltip} from '@sanity/ui/tooltip'
 import {randomKey} from '@sanity/util/content'
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import {
@@ -15,16 +12,28 @@ import {
   type FormPatch,
   type Path,
   setIfMissing,
+  useSource,
   useTranslation,
 } from 'sanity'
 
+import {
+  getCollapsedLists,
+  getCollapseLimit,
+  getParentId,
+  getWorkspaceCollapseLimit,
+  listKey,
+  ROOT_LIST,
+  withoutHidden,
+} from './collapse-lists'
 import {keepDraggedRowLifted, restrictToList, snapToDepth} from './drag-feedback'
 import {sortableTreeLocaleNamespace} from './i18n'
+import {ItemsToggle} from './items-toggle'
 import {type RenderCallbacks} from './member-preview'
 import {type AddableType, NewTreeItem} from './new-tree-item'
 import {
   CHILDREN_FIELD,
   getAppendPatches,
+  getArrayAt,
   getChildrenPath,
   getMovePatches,
   getRemovePatches,
@@ -439,10 +448,79 @@ export function Tree({
     }
   }, [focusExpandedIds, items])
 
-  const baseDragItems = useMemo(() => flattenTree(items, collapsedKeys), [collapsedKeys, items])
+  const memberById = useMemo(() => {
+    const next = new Map<string, any>()
+
+    const visitMember = (member: any, depth = 0, parentId: string | null = null) => {
+      if (!member) return
+
+      const id = member.key ? (parentId ? `${parentId}/${member.key}` : member.key) : null
+
+      if (id) {
+        next.set(id, member)
+      }
+
+      if (depth >= maxDepth) return
+
+      const childrenMenu = member?.item?.members?.find(
+        (m: any) => m.kind === 'field' && m.name === CHILDREN_FIELD,
+      )
+      const children = childrenMenu?.field?.members
+
+      if (!children) return
+
+      children.forEach((child: any) => {
+        visitMember(child, depth + 1, id)
+      })
+    }
+
+    members?.forEach((member) => visitMember(member, 0, null))
+
+    return next
+  }, [maxDepth, members])
+
+  // "Show all N items": every list (the root and each item's children) shows the first items up
+  // to its limit, like the Studio's arrays. The array field's `options.collapseItemsAfter` (the
+  // tree field for the root, the `children` field for nested lists) wins over the workspace's
+  // `form.arrays.collapseItems`.
+  // oxlint-disable-next-line typescript/no-deprecated -- internal: the workspace's form config
+  const source = useSource()
+  const workspaceCollapseLimit = getWorkspaceCollapseLimit(source.form?.arrays?.collapseItems)
+  const getListLimit = useCallback(
+    (parentId: string | null) =>
+      getCollapseLimit(
+        parentId === null
+          ? schemaType
+          : getChildrenArraySchemaType(memberById.get(parentId)?.item?.schemaType),
+        workspaceCollapseLimit,
+      ),
+    [memberById, schemaType, workspaceCollapseLimit],
+  )
+  // Lists showing all their items (keys from `listKey`)
+  const [expandedLists, setExpandedLists] = useState<ReadonlySet<string>>(() => new Set())
+  const collapsedLists = useMemo(
+    () => getCollapsedLists(items, getListLimit, expandedLists),
+    [expandedLists, getListLimit, items],
+  )
+  const expandList = useCallback((key: string) => {
+    setExpandedLists((current) => (current.has(key) ? current : new Set([...current, key])))
+  }, [])
+  const handleToggleList = useCallback((key: string) => {
+    setExpandedLists((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  const baseDragItems = useMemo(
+    () => withoutHidden(flattenTree(items, collapsedKeys), collapsedLists.hidden),
+    [collapsedKeys, collapsedLists, items],
+  )
   const baseRenderItems = useMemo(
-    () => flattenTree(items, collapsedKeys, false),
-    [collapsedKeys, items],
+    () => withoutHidden(flattenTree(items, collapsedKeys, false), collapsedLists.hidden),
+    [collapsedKeys, collapsedLists, items],
   )
   const dragItems = projectedItems ?? baseDragItems
   const renderItems = projectedItems ?? baseRenderItems
@@ -502,37 +580,6 @@ export function Tree({
     },
     [dragFlip],
   )
-
-  const memberById = useMemo(() => {
-    const next = new Map<string, any>()
-
-    const visitMember = (member: any, depth = 0, parentId: string | null = null) => {
-      if (!member) return
-
-      const id = member.key ? (parentId ? `${parentId}/${member.key}` : member.key) : null
-
-      if (id) {
-        next.set(id, member)
-      }
-
-      if (depth >= maxDepth) return
-
-      const childrenMenu = member?.item?.members?.find(
-        (m: any) => m.kind === 'field' && m.name === CHILDREN_FIELD,
-      )
-      const children = childrenMenu?.field?.members
-
-      if (!children) return
-
-      children.forEach((child: any) => {
-        visitMember(child, depth + 1, id)
-      })
-    }
-
-    members?.forEach((member) => visitMember(member, 0, null))
-
-    return next
-  }, [maxDepth, members])
 
   const treeMeta = useMemo(() => {
     const hasChildren = new Set<string>()
@@ -621,24 +668,20 @@ export function Tree({
     [getDragOffsetX, getTreeElement],
   )
 
-  const handleExpandAll = useCallback(() => {
-    updateProjectedItems(null)
-    for (const id of treeMeta.hasChildren) manuallyToggledCollapsedKeysRef.current.add(id)
-    setCollapsedKeys(new Set())
-  }, [treeMeta, updateProjectedItems])
-
-  const handleCollapseAll = useCallback(() => {
-    updateProjectedItems(null)
-    for (const id of treeMeta.hasChildren) manuallyToggledCollapsedKeysRef.current.add(id)
-    setCollapsedKeys(new Set(treeMeta.hasChildren))
-  }, [treeMeta, updateProjectedItems])
-
   // When the Studio focuses something inside a collapsed item (e.g. jumping to a validation error),
   // expand the items around it. Adjusting state while rendering, as React recommends for props.
-  const [previousFocusPath, setPreviousFocusPath] = useState(focusPath)
+  // (Also the focus the document opens with, e.g. an item's dialog from the URL: hence `null`)
+  const [previousFocusPath, setPreviousFocusPath] = useState<Path | undefined | null>(null)
   if (focusPath !== previousFocusPath) {
     setPreviousFocusPath(focusPath)
     const ancestors = getFocusAncestorIds(focusPath)
+    // ...and show the lists it's hidden in (past their "Show all N items")
+    const hiddenOnPath = getFocusItemIds(focusPath).filter((id) => collapsedLists.hidden.has(id))
+    if (hiddenOnPath.length) {
+      setExpandedLists(
+        new Set([...expandedLists, ...hiddenOnPath.map((id) => listKey(getParentId(id)))]),
+      )
+    }
     if (ancestors.some((id) => collapsedKeys.has(id))) {
       setFocusExpandedIds(new Set([...focusExpandedIds, ...ancestors]))
       setCollapsedKeys(new Set([...collapsedKeys].filter((id) => !ancestors.includes(id))))
@@ -683,6 +726,10 @@ export function Tree({
       const itemPath: Path = [...childrenPath, {_key: key}]
 
       onPatch(getAppendPatches({_key: key, _type: itemSchemaType.name}, childrenPath))
+      // The new item goes last: show the whole list, like the Studio's arrays do for a new item
+      if (getArrayAt(items, childrenPath).length + 1 > getListLimit(parentId)) {
+        expandList(listKey(parentId))
+      }
       setAddedReferenceId(
         isReferenceType(itemSchemaType) ? (parentId ? `${parentId}/${key}` : key) : null,
       )
@@ -722,7 +769,10 @@ export function Tree({
     },
     [
       canAddItemToParent,
+      expandList,
       getDestinationArraySchemaType,
+      getListLimit,
+      items,
       onPatch,
       resolveInitialValue,
       t,
@@ -885,6 +935,16 @@ export function Tree({
                   }}
                 >
                   {node.children.map((child) => renderTreeNode(child, disabled || subtreeDisabled))}
+                  {collapsedLists.collapsible.has(node.id) && (
+                    <li key={`toggle-${node.id}`} style={{listStyle: 'none'}}>
+                      <ItemsToggle
+                        list={node.id}
+                        count={collapsedLists.collapsible.get(node.id) ?? 0}
+                        expanded={expandedLists.has(node.id)}
+                        onToggle={handleToggleList}
+                      />
+                    </li>
+                  )}
                   {hasRealChildren && node.depth < maxDepth - 1 && canAddItemToParent(node.id) && (
                     <li key={`add-${node.id}`} style={{listStyle: 'none'}}>
                       <NewTreeItem
@@ -928,6 +988,9 @@ export function Tree({
       treeMeta,
       focusedItemIds,
       windowing,
+      collapsedLists,
+      expandedLists,
+      handleToggleList,
     ],
   )
 
@@ -1194,69 +1257,24 @@ export function Tree({
             </Box>
           )}
 
-          {treeMeta.hasChildren.size > 0 ? (
-            // With nested items: "Expand all" / "Collapse all" next to "Add item"
+          {collapsedLists.collapsible.has(ROOT_LIST) && (
             <li style={{listStyle: 'none'}}>
-              <Flex gap={1}>
-                {!addDisabled && (
-                  <Box flex={1}>
-                    <NewTreeItem
-                      addItem={handleAddItem}
-                      disabled={!canAddItemToParent(null)}
-                      types={getAddableTypes(schemaType)}
-                    />
-                  </Box>
-                )}
-                <Tooltip
-                  content={
-                    <Text muted size={1}>
-                      {t('expand-all')}
-                    </Text>
-                  }
-                  animate
-                  placement="top"
-                  portal
-                >
-                  <Button
-                    aria-label={t('expand-all')}
-                    disabled={collapsedKeys.size === 0}
-                    icon={DoubleChevronDownIcon}
-                    mode="ghost"
-                    padding={2}
-                    onClick={handleExpandAll}
-                  />
-                </Tooltip>
-                <Tooltip
-                  content={
-                    <Text muted size={1}>
-                      {t('collapse-all')}
-                    </Text>
-                  }
-                  animate
-                  placement="top"
-                  portal
-                >
-                  <Button
-                    aria-label={t('collapse-all')}
-                    disabled={[...treeMeta.hasChildren].every((id) => collapsedKeys.has(id))}
-                    icon={DoubleChevronUpIcon}
-                    mode="ghost"
-                    padding={2}
-                    onClick={handleCollapseAll}
-                  />
-                </Tooltip>
-              </Flex>
+              <ItemsToggle
+                list={ROOT_LIST}
+                count={collapsedLists.collapsible.get(ROOT_LIST) ?? 0}
+                expanded={expandedLists.has(ROOT_LIST)}
+                onToggle={handleToggleList}
+              />
             </li>
-          ) : (
-            !addDisabled && (
-              <li style={{listStyle: 'none'}}>
-                <NewTreeItem
-                  addItem={handleAddItem}
-                  disabled={!canAddItemToParent(null)}
-                  types={getAddableTypes(schemaType)}
-                />
-              </li>
-            )
+          )}
+          {!addDisabled && (
+            <li style={{listStyle: 'none'}}>
+              <NewTreeItem
+                addItem={handleAddItem}
+                disabled={!canAddItemToParent(null)}
+                types={getAddableTypes(schemaType)}
+              />
+            </li>
           )}
         </Grid>
       </Card>

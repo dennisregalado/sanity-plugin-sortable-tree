@@ -13,8 +13,10 @@ inside a single document.
   children get an "Add nested item" action.
 - Invalid items are highlighted like the Studio's own array items, and a collapsed item shows its
   hidden children's errors.
-- Expand all / Collapse all, and collapsed items open when the Studio focuses something inside
-  them (e.g. jumping to a validation error).
+- Long lists show their first items and "Show all N items", like the Studio's own arrays. Every
+  list collapses on its own: the root and each item's nested items.
+- Collapsed items and lists open when the Studio focuses something inside them (e.g. jumping to
+  a validation error).
 - Keyboard dragging: Space to pick up, up/down to move one position, left/right to change the
   nesting level, Space to drop, Escape to cancel.
 - Edits are sent as targeted patches (`insert`/`unset` by `_key`), like the Studio's own array
@@ -118,6 +120,34 @@ Set these in the array field's `options`:
 
 Sanity's own array options apply to the whole tree: `sortable: false` hides the drag handles, and
 `disableActions: ['add']` / `['remove']` hide the Add and Remove buttons.
+
+**Long lists:** like the Studio's own arrays, a list with more items than its limit shows the
+first ones and "Show all N items" (then "Show fewer items"). Every list collapses on its own: the
+root list and each item's nested items, counting only that list's own items. The limit is the
+array field's `options.collapseItemsAfter`, the same option as the Studio's arrays: set it on the
+tree field for the root list, and on the `children` field for nested lists. `false` never
+collapses that list. Without it, the workspace's `form.arrays.collapseItems` applies (4 items by
+default; `enabled: false` turns collapsing off everywhere).
+
+```ts
+defineField({
+  name: 'items',
+  type: 'array',
+  of: [{type: 'menuItem'}],
+  options: {tree: true, collapseItemsAfter: 8},
+})
+
+// In the item type: nested lists collapse after 5, or never with `false`
+defineField({
+  name: 'children',
+  type: 'array',
+  of: [{type: 'menuItem'}],
+  options: {collapseItemsAfter: 5},
+})
+```
+
+A list opens by itself when an item is added to it, or when the Studio focuses an item past its
+limit. Dragging doesn't open lists: drop among the items that show, and the rest stay after them.
 
 ### How the data is stored
 

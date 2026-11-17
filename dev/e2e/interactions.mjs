@@ -176,15 +176,60 @@ const tests = {
     assert.deepEqual(keys(draft.items), ['home', 'shop', 'about', 'contact'])
   },
 
-  'collapses and expands everything': async (page, field) => {
-    const dresses = field.getByText('Dresses', {exact: true}).first()
-    await field.getByRole('button', {name: 'Collapse all'}).click()
-    await waitFor(async () => !(await dresses.isVisible()), 'nested items hidden')
-    await field.getByRole('button', {name: 'Expand all'}).click()
-    await waitFor(() => dresses.isVisible(), 'nested items shown again')
+  'shows the first 4 items of each list, then "Show all N items"': {
+    doc: ['menu', 'menu-long'],
+    run: async (page, field) => {
+      const visible = (title) => field.getByText(title, {exact: true}).first().isVisible()
+      // The root list: 7 items, the first 4 shown
+      await field.getByText('Stores', {exact: true}).first().waitFor()
+      assert.equal(await visible('About'), false, "About is past the root list's limit")
+      // Shop's list: 6 items, the first 4 shown
+      assert.equal(await visible('Home & living'), true)
+      assert.equal(await visible('Beauty'), false, "Beauty is past Shop's limit")
 
-    // Expanding and collapsing is view state: nothing is written
-    assert.equal(await lake.doc('drafts.menu-main'), null)
+      await field.getByRole('button', {name: 'Show all 6 items'}).click()
+      await waitFor(() => visible('Beauty'), 'Shop showing all its items')
+      assert.equal(await visible('About'), false, 'the root list stays collapsed')
+
+      await field.getByRole('button', {name: 'Show all 7 items'}).click()
+      await waitFor(() => visible('Contact'), 'the root list showing all its items')
+      assert.equal(await field.getByRole('button', {name: 'Show fewer items'}).count(), 2)
+
+      await field.getByRole('button', {name: 'Show fewer items'}).last().click()
+      await waitFor(async () => !(await visible('Contact')), 'the root list collapsed again')
+
+      // Showing and hiding items is view state: nothing is written
+      assert.equal(await lake.doc('drafts.menu-long'), null)
+    },
+  },
+
+  'shows the list of an item the Studio focuses past its limit': {
+    // Opens the document with "About" (the root list's 6th item) focused, its dialog open
+    doc: ['menu', 'menu-long,path=items%5B_key%3D%3D%22about%22%5D'],
+    run: async (page, field) => {
+      await waitFor(
+        async () => (await field.getByRole('button', {name: 'Show fewer items'}).count()) === 1,
+        'the root list showing all its items',
+      )
+      // Shop's list has nothing focused: it stays collapsed
+      assert.equal(await field.getByRole('button', {name: 'Show all 6 items'}).count(), 1)
+    },
+  },
+
+  'shows the whole list when adding to a collapsed one': {
+    doc: ['menu', 'menu-long'],
+    run: async (page, field) => {
+      await field.getByRole('button', {name: 'Add item'}).last().click()
+      await waitFor(
+        () => field.getByText('Contact', {exact: true}).first().isVisible(),
+        'the root list expanded to show the new item',
+      )
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-long')
+        return doc?.items.length === 8 && doc
+      }, 'an eighth root item')
+      assert.equal(draft.items[7]._type, 'menuItem')
+    },
   },
 
   'adds an item with an insert': async (page, field) => {
@@ -219,6 +264,8 @@ const tests = {
   'long trees mount rows as they scroll into view': {
     doc: ['menu', 'menu-big'],
     run: async (page, field) => {
+      // 100 groups: the list shows the first 4 until it's expanded
+      await field.getByRole('button', {name: 'Show all 100 items'}).click()
       const last = field.getByText('Group 100', {exact: true}).first()
       // Off-screen rows are placeholders until they come near the viewport: scroll down to it
       await page.mouse.move(700, 700)
