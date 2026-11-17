@@ -1,44 +1,45 @@
-import {useEffect} from 'react'
-import {ArrayOfObjectsInputProps, ObjectItem} from 'sanity'
-import {Tree} from './tree'
-import {set} from 'sanity'
 import {Box, Stack} from '@sanity/ui'
-import type {Item as TreeItemValue} from './types'
-import {ensureUniqueSiblingKeys} from './utils'
+import {useCallback} from 'react'
+import {
+  type ArrayOfObjectsInputProps,
+  type FormPatch,
+  type InputProps,
+  type ObjectItem,
+  type Path,
+} from 'sanity'
 
-export function SortableTreeInput<Item extends ObjectItem>(props: ArrayOfObjectsInputProps<Item>) {
-  const {members, onChange, schemaType} = props
+import {Tree} from './tree'
+import type {Item as TreeItemValue} from './types'
+
+const EMPTY: TreeItemValue[] = []
+
+export function SortableTreeInput<Item extends ObjectItem>(
+  props: ArrayOfObjectsInputProps<Item>,
+): React.JSX.Element {
+  const {members, onChange, onItemOpen, path, schemaType} = props
 
   const maxDepth = schemaType.options?.maxDepth ?? 3
 
-  const items = (props.value || []) as unknown as TreeItemValue[]
+  const items = (Array.isArray(props.value) ? props.value : EMPTY) as unknown as TreeItemValue[]
 
-  useEffect(() => {
-    // Never write to a document the user can't edit (read-only fields, published perspective,
-    // releases that aren't selected, missing permissions).
-    if (props.readOnly) return
+  const handlePatch = useCallback((patches: FormPatch[]) => onChange(patches), [onChange])
 
-    const result = ensureUniqueSiblingKeys(items)
-
-    if (result.changed) {
-      onChange(set(result.items))
-    }
-  }, [items, onChange, props.readOnly])
+  // `onItemOpen` takes an absolute path; the tree works with paths relative to this array
+  const handleItemOpen = useCallback(
+    (itemPath: Path) => onItemOpen([...path, ...itemPath]),
+    [onItemOpen, path],
+  )
 
   return (
     <Stack gap={2} style={{position: 'relative'}}>
       <Tree
         members={members}
-        props={props}
+        props={props as unknown as ArrayOfObjectsInputProps<TreeItemValue>}
         items={items}
         maxDepth={maxDepth}
         readOnly={props.readOnly}
-        onChange={(newItems) => {
-          onChange(set(newItems))
-        }}
-        onItemOpen={(path) => {
-          props.onPathFocus(path)
-        }}
+        onPatch={handlePatch}
+        onItemOpen={handleItemOpen}
       />
       <Box
         aria-hidden
@@ -54,7 +55,7 @@ export function SortableTreeInput<Item extends ObjectItem>(props: ArrayOfObjects
           pointerEvents: 'none',
         }}
       >
-        {props.renderDefault(props as any)}
+        {props.renderDefault(props as unknown as InputProps)}
       </Box>
     </Stack>
   )

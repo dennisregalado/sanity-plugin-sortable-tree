@@ -2,16 +2,16 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {DragDropProvider, DragOverlay} from '@dnd-kit/react'
 import {isKeyboardEvent} from '@dnd-kit/dom/utilities'
 import {randomKey} from '@sanity/util/content'
+import {useToast} from '@sanity/ui/toast'
 import {FlattenedItem, type Item} from './types'
+import {flattenTree, getProjection, getDragDepth, getDescendants, walkTree} from './utils'
 import {
-  flattenTree,
-  buildTree,
-  getProjection,
-  getDragDepth,
-  getDescendants,
-  getTreeItemId,
-  indexItemsById,
-} from './utils'
+  CHILDREN_FIELD,
+  getAppendPatches,
+  getChildrenPath,
+  getMovePatches,
+  getRemovePatches,
+} from './patches'
 import {TreeItem} from './tree-item'
 import {TreeItemOverlay} from './tree-overlay'
 import {NewTreeItem} from './new-tree-item'
@@ -20,15 +20,19 @@ import {
   ArrayOfObjectsItem,
   ArrayOfObjectsInputProps,
   ArrayOfObjectsMember,
+  type FormPatch,
   ObjectInputProps,
   type Path,
   SanityDefaultPreview,
+  setIfMissing,
 } from 'sanity'
 
 interface Props {
   items: Item[]
   indentation?: number
-  onChange(items: Item[]): void
+  /** Called with patches relative to the root array */
+  onPatch(patches: FormPatch[]): void
+  /** Called with the path of an item, relative to the root array */
   onItemOpen?(path: Path): void
   members?: ArrayOfObjectsMember[]
   maxDepth?: number
@@ -46,60 +50,13 @@ const COLLAPSE_DURATION_MS = 250
 function collectDefaultCollapsedKeys(items: Item[]) {
   const collapsedKeys = new Set<string>()
 
-  const visitItems = (treeItems: Item[], parentId: string | null = null) => {
-    treeItems.forEach((item, index) => {
-      const id = getTreeItemId(parentId, item._key, index)
-      const childCount = item.children?.length ?? 0
-
-      if (item.collapsed) {
-        collapsedKeys.add(id)
-      }
-
-      if (item.children && childCount > 0) {
-        visitItems(item.children, id)
-      }
-    })
-  }
-
-  visitItems(items)
+  walkTree(items, (item, id) => {
+    if (item.collapsed) {
+      collapsedKeys.add(id)
+    }
+  })
 
   return collapsedKeys
-}
-
-function flattenTreeForRender(
-  items: Item[],
-  collapsedKeys: ReadonlySet<string>,
-  parentId: string | null = null,
-  depth = 0,
-): FlattenedItem[] {
-  const flattenedItems: FlattenedItem[] = []
-
-  const walk = (
-    treeItems: Item[] | undefined,
-    currentParentId: string | null,
-    currentDepth: number,
-  ) => {
-    if (!treeItems) return
-
-    treeItems.forEach((item, index) => {
-      const id = getTreeItemId(currentParentId, item._key, index)
-      const collapsed = collapsedKeys.has(id)
-
-      flattenedItems.push({
-        ...item,
-        id,
-        collapsed,
-        parentId: currentParentId,
-        depth: currentDepth,
-        index,
-      })
-      walk(item.children, id, currentDepth + 1)
-    })
-  }
-
-  walk(items, parentId, depth)
-
-  return flattenedItems
 }
 
 function buildRenderTree(flattenedItems: FlattenedItem[]): TreeRenderNode[] {
@@ -145,7 +102,9 @@ function getArrayMemberSchemaType(arraySchemaType: any, typeName?: string) {
 }
 
 function getChildrenArraySchemaType(objectSchemaType: any) {
-  const childrenField = objectSchemaType?.fields?.find((field: any) => field?.name === 'children')
+  const childrenField = objectSchemaType?.fields?.find(
+    (field: any) => field?.name === CHILDREN_FIELD,
+  )
   const childrenType = childrenField?.type
 
   return Array.isArray(childrenType?.of) ? childrenType : undefined
@@ -163,19 +122,6 @@ function canArrayContainItemType(arraySchemaType: any, itemTypeName?: string) {
   }
 
   return memberTypes.some((memberType) => getSchemaTypeName(memberType) === itemTypeName)
-}
-
-function createItemForArraySchema(arraySchemaType: any): Item | null {
-  const itemSchemaType = getArrayMemberSchemaType(arraySchemaType)
-  const itemTypeName = getSchemaTypeName(itemSchemaType)
-
-  if (!itemTypeName) return null
-
-  return {
-    _key: randomKey(12),
-    _type: itemTypeName,
-    ...(getChildrenArraySchemaType(itemSchemaType) ? {children: []} : {}),
-  }
 }
 
 function CollapsibleSubtree({
@@ -242,7 +188,7 @@ export function Tree({
   members,
   props,
   indentation = 50,
-  onChange,
+  onPatch,
   onItemOpen,
   maxDepth = 3,
   readOnly = false,
@@ -255,24 +201,15 @@ export function Tree({
   const [activeDragItemId, setActiveDragItemId] = useState<string | null>(null)
   const projectedItemsRef = useRef<FlattenedItem[] | null>(null)
   const manuallyToggledCollapsedKeysRef = useRef<Set<string>>(new Set())
+  const toast = useToast()
 
   useEffect(() => {
     const defaultCollapsedKeys = collectDefaultCollapsedKeys(items)
     const validKeys = new Set<string>()
 
-    const visitItems = (treeItems: Item[], parentId: string | null = null) => {
-      treeItems.forEach((item, index) => {
-        const id = getTreeItemId(parentId, item._key, index)
-
-        validKeys.add(id)
-
-        if (item.children?.length) {
-          visitItems(item.children, id)
-        }
-      })
-    }
-
-    visitItems(items)
+    walkTree(items, (_item, id) => {
+      validKeys.add(id)
+    })
 
     setCollapsedKeys((currentKeys) => {
       const nextKeys = new Set(currentKeys)
@@ -302,11 +239,9 @@ export function Tree({
     }
   }, [items])
 
-  // Original values by tree id, used to rebuild the value without losing fields on reorder/remove
-  const itemById = useMemo(() => indexItemsById(items), [items])
   const baseDragItems = useMemo(() => flattenTree(items, collapsedKeys), [collapsedKeys, items])
   const baseRenderItems = useMemo(
-    () => flattenTreeForRender(items, collapsedKeys),
+    () => flattenTree(items, collapsedKeys, false),
     [collapsedKeys, items],
   )
   const dragItems = projectedItems ?? baseDragItems
@@ -342,11 +277,10 @@ export function Tree({
       depth = 0,
       parentProps: any = props,
       parentId: string | null = null,
-      index = 0,
     ) => {
       if (!member) return
 
-      const id = member.key ? getTreeItemId(parentId, member.key, index) : null
+      const id = member.key ? (parentId ? `${parentId}/${member.key}` : member.key) : null
 
       if (member.key) {
         next.set(id!, {...member, parentProps})
@@ -354,17 +288,19 @@ export function Tree({
 
       if (depth >= maxDepth) return
 
-      const childrenMenu = member?.item?.members?.find((m: any) => m.name === 'children')
+      const childrenMenu = member?.item?.members?.find(
+        (m: any) => m.kind === 'field' && m.name === CHILDREN_FIELD,
+      )
       const children = childrenMenu?.field?.members
 
       if (!children) return
 
-      children.forEach((child: any, childIndex: number) => {
-        visitMember(child, depth + 1, childrenMenu.field, id, childIndex)
+      children.forEach((child: any) => {
+        visitMember(child, depth + 1, childrenMenu.field, id)
       })
     }
 
-    members?.forEach((member, index) => visitMember(member, 0, props, null, index))
+    members?.forEach((member) => visitMember(member, 0, props, null))
 
     return next
   }, [maxDepth, members, props])
@@ -373,25 +309,15 @@ export function Tree({
     const hasChildren = new Set<string>()
     const pathById = new Map<string, Path>()
 
-    const visitItems = (
-      treeItems: Item[],
-      currentPath: Path = [],
-      parentId: string | null = null,
-    ) => {
-      treeItems.forEach((item, index) => {
-        const id = getTreeItemId(parentId, item._key, index)
-        const itemPath: Path = [...currentPath, {_key: item._key}]
+    walkTree(items, (item, id, parentId) => {
+      const parentPath = parentId === null ? null : (pathById.get(parentId) ?? null)
 
-        pathById.set(id, itemPath)
+      pathById.set(id, [...getChildrenPath(parentPath), {_key: item._key}])
 
-        if (item.children?.length) {
-          hasChildren.add(id)
-          visitItems(item.children, [...itemPath, 'children'], id)
-        }
-      })
-    }
-
-    visitItems(items)
+      if (Array.isArray(item.children) && item.children.length > 0) {
+        hasChildren.add(id)
+      }
+    })
 
     return {hasChildren, pathById}
   }, [items])
@@ -424,22 +350,15 @@ export function Tree({
       if (parentId !== null) {
         const parentItem = memberById.get(parentId)?.item
         const childrenField = parentItem?.members?.find(
-          (m: {kind?: string; name?: string}) => m.kind === 'field' && m.name === 'children',
+          (m: {kind?: string; name?: string}) => m.kind === 'field' && m.name === CHILDREN_FIELD,
         )?.field
 
         if (parentItem?.readOnly || childrenField?.readOnly) return false
       }
 
-      return createItemForArraySchema(getDestinationArraySchemaType(parentId)) !== null
+      return getArrayMemberSchemaType(getDestinationArraySchemaType(parentId)) !== undefined
     },
     [getDestinationArraySchemaType, memberById, readOnly],
-  )
-
-  const sanitizeTreeItems = useCallback(
-    (treeItems: Item[]) => {
-      return sanitizeItems(treeItems, props.schemaType)
-    },
-    [props.schemaType],
   )
 
   const initialDepth = useRef(0)
@@ -472,56 +391,56 @@ export function Tree({
 
       if (!canAddItemToParent(parentId)) return
 
-      const newItem = createItemForArraySchema(getDestinationArraySchemaType(parentId))
+      const itemSchemaType = getArrayMemberSchemaType(getDestinationArraySchemaType(parentId))
+      const parentPath = parentId === null ? null : treeMeta.pathById.get(parentId)
 
-      if (!newItem) return
+      if (!itemSchemaType || parentPath === undefined) return
 
-      if (parentId === null) {
-        // Adding to root level
-        const newItems = [...items, newItem]
-        onChange(sanitizeTreeItems(newItems))
-      } else {
-        // Adding to a parent item
-        const addToParent = (
-          items: Item[],
-          targetParentId: string,
-          currentParentId: string | null = null,
-        ): Item[] => {
-          return items.map((item, index) => {
-            const id = getTreeItemId(currentParentId, item._key, index)
+      const childrenPath = getChildrenPath(parentPath)
+      const key = randomKey(12)
+      const itemPath: Path = [...childrenPath, {_key: key}]
 
-            if (id === targetParentId) {
-              return {
-                ...item,
-                children: [...(Array.isArray(item.children) ? item.children : []), newItem],
-              }
-            }
-            if (item.children && Array.isArray(item.children) && item.children.length > 0) {
-              return {
-                ...item,
-                children: addToParent(item.children, targetParentId, id),
-              }
-            }
-            return item
-          })
-        }
+      onPatch(getAppendPatches({_key: key, _type: itemSchemaType.name}, childrenPath))
 
-        const newItems = addToParent(items, parentId)
-        const nextCollapsedKeys = new Set(collapsedKeys)
-
+      if (parentId !== null) {
         manuallyToggledCollapsedKeysRef.current.add(parentId)
-        nextCollapsedKeys.delete(parentId)
-        setCollapsedKeys(nextCollapsedKeys)
-        onChange(sanitizeTreeItems(newItems))
+        setCollapsedKeys((currentKeys) => {
+          if (!currentKeys.has(parentId)) return currentKeys
+
+          const nextKeys = new Set(currentKeys)
+          nextKeys.delete(parentId)
+          return nextKeys
+        })
       }
+
+      // Like the Studio's own array input: insert right away, then fill in the schema's
+      // initial value. `setIfMissing` keeps anything the user typed in the meantime.
+      props
+        .resolveInitialValue(itemSchemaType, {})
+        .then((initialValue) => {
+          const fields = Object.entries((initialValue ?? {}) as Record<string, unknown>).filter(
+            ([name, value]) => name !== '_key' && name !== '_type' && value !== undefined,
+          )
+
+          if (fields.length) {
+            onPatch(fields.map(([name, value]) => setIfMissing(value, [...itemPath, name])))
+          }
+        })
+        .catch((error: unknown) => {
+          toast.push({
+            status: 'error',
+            title: 'Could not resolve initial value',
+            description: error instanceof Error ? error.message : String(error),
+          })
+        })
     },
     [
       canAddItemToParent,
-      collapsedKeys,
       getDestinationArraySchemaType,
-      items,
-      onChange,
-      sanitizeTreeItems,
+      onPatch,
+      props,
+      toast,
+      treeMeta,
       updateProjectedItems,
     ],
   )
@@ -531,31 +450,31 @@ export function Tree({
       if (!onItemOpen) return
 
       const itemPath = treeMeta.pathById.get(id)
-      const firstFieldName = memberById.get(id)?.item?.members?.[0]?.name
 
       if (!itemPath) return
 
-      onItemOpen(firstFieldName ? [...itemPath, firstFieldName] : itemPath)
+      onItemOpen(itemPath)
     },
-    [memberById, onItemOpen, treeMeta],
+    [onItemOpen, treeMeta],
   )
 
   const handleRemove = useCallback(
     (id: string) => {
       updateProjectedItems(null)
 
-      const descendants = getDescendants(dragItems, id)
-      const newItems = dragItems.filter((item) => item.id !== id && !descendants.has(item.id))
-      const tree = buildTree(newItems, itemById)
-      const remainingIds = new Set(newItems.map((item) => item.id))
-      const nextCollapsedKeys = new Set(
-        [...collapsedKeys].filter((key) => key !== id && remainingIds.has(key)),
-      )
+      const path = treeMeta.pathById.get(id)
 
-      setCollapsedKeys(nextCollapsedKeys)
-      onChange(sanitizeTreeItems(tree))
+      if (!path) return
+
+      setCollapsedKeys((currentKeys) => {
+        const nextKeys = new Set(
+          [...currentKeys].filter((key) => key !== id && !key.startsWith(`${id}/`)),
+        )
+        return nextKeys.size === currentKeys.size ? currentKeys : nextKeys
+      })
+      onPatch(getRemovePatches(path))
     },
-    [collapsedKeys, dragItems, itemById, onChange, sanitizeTreeItems, updateProjectedItems],
+    [onPatch, treeMeta, updateProjectedItems],
   )
 
   const restoreSourceChildren = useCallback((activeItems: FlattenedItem[]) => {
@@ -856,7 +775,22 @@ export function Tree({
         const movedItem = sourceItem.current
           ? restoredItems.find((item) => item.id === sourceItem.current?.id)
           : undefined
-        const updatedTree = buildTree(restoredItems, itemById)
+        const fromPath = movedItem ? treeMeta.pathById.get(movedItem.id) : undefined
+        const parentPath =
+          movedItem?.parentId == null ? null : treeMeta.pathById.get(movedItem.parentId)
+        let movePatches: FormPatch[] = []
+
+        if (movedItem && fromPath && parentPath !== undefined) {
+          // Only the dragged item changes position: its children move with it
+          const siblings = restoredItems.filter((item) => item.parentId === movedItem.parentId)
+          const position = siblings.indexOf(movedItem)
+
+          movePatches = getMovePatches(items, fromPath, {
+            parentPath,
+            afterKey: siblings[position - 1]?._key,
+            beforeKey: siblings[position + 1]?._key,
+          })
+        }
 
         if (movedItem?.parentId) {
           manuallyToggledCollapsedKeysRef.current.add(movedItem.parentId)
@@ -873,7 +807,7 @@ export function Tree({
           })
         }
 
-        onChange(sanitizeTreeItems(updatedTree))
+        if (movePatches.length) onPatch(movePatches)
         sourceItem.current = null
         setActiveDragItemId(null)
         sourceChildren.current = []
@@ -942,30 +876,6 @@ export function Tree({
       </DragOverlay>
     </DragDropProvider>
   )
-}
-
-function sanitizeItems(items: Item[], arraySchemaType?: any): Item[] {
-  return items.map((item) => {
-    // Tree bookkeeping is already removed by `buildTree`. Don't delete keys like `id`, `index` or
-    // `collapsed` here: they can be real fields in the user's schema.
-    const sanitizedItem: Item = {
-      ...item,
-    }
-    const itemSchemaType = getArrayMemberSchemaType(
-      arraySchemaType,
-      typeof item._type === 'string' ? item._type : undefined,
-    )
-    const childrenArraySchemaType = getChildrenArraySchemaType(itemSchemaType)
-    const children = Array.isArray(item.children) ? item.children : []
-
-    if (childrenArraySchemaType && children.length > 0) {
-      sanitizedItem.children = sanitizeItems(children, childrenArraySchemaType)
-    } else {
-      delete sanitizedItem.children
-    }
-
-    return sanitizedItem
-  })
 }
 
 function TreeItemInput(props: any) {

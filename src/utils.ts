@@ -1,163 +1,82 @@
-import {UniqueIdentifier} from '@dnd-kit/abstract'
-import {randomKey} from '@sanity/util/content'
+import type {UniqueIdentifier} from '@dnd-kit/abstract'
 
-import type {Item, FlattenedItem} from './types'
+import type {FlattenedItem, Item} from './types'
 
-export function getTreeItemId(parentId: string | null, key: string, _index: number) {
-  const segment = key
-
-  return parentId ? `${parentId}/${segment}` : segment
+export function getTreeItemId(parentId: string | null, key: string): string {
+  return parentId ? `${parentId}/${key}` : key
 }
 
-export function ensureUniqueSiblingKeys(items: Item[]): {items: Item[]; changed: boolean} {
-  let changed = false
+/** Whether `value` is an array item the tree can show: an object with a string `_key` */
+export function isTreeItem(value: unknown): value is Item {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as {_key?: unknown})._key === 'string' &&
+    (value as {_key: string})._key.length > 0
+  )
+}
+
+/** The valid children of an item. Malformed `children` (not an array) count as none. */
+export function getChildItems(item: Item): Item[] {
+  return Array.isArray(item.children) ? item.children : []
+}
+
+/**
+ * Visits every item depth-first, with its tree id. Items the tree can't show (not an object,
+ * no `_key`, or a `_key` already used by an earlier sibling) are skipped with their children:
+ * the Studio reports those in the item's own dialog, and they're never written to by the tree.
+ */
+export function walkTree(
+  items: unknown,
+  visit: (
+    item: Item,
+    id: string,
+    parentId: string | null,
+    depth: number,
+    index: number,
+  ) => boolean | void,
+  parentId: string | null = null,
+  depth = 0,
+): void {
+  if (!Array.isArray(items)) return
+
   const seenKeys = new Set<string>()
+  let index = 0
 
-  const nextItems = items.map((item) => {
-    let key = item._key
+  for (const item of items) {
+    if (!isTreeItem(item) || seenKeys.has(item._key)) continue
+    seenKeys.add(item._key)
 
-    if (!key || seenKeys.has(key)) {
-      changed = true
-
-      do {
-        key = randomKey(12)
-      } while (seenKeys.has(key))
+    const id = getTreeItemId(parentId, item._key)
+    // Returning false skips the item's children
+    if (visit(item, id, parentId, depth, index) !== false) {
+      walkTree(item.children, visit, id, depth + 1)
     }
-
-    seenKeys.add(key)
-
-    const hasChildren = Array.isArray(item.children)
-    const nextChildren = hasChildren ? ensureUniqueSiblingKeys(item.children ?? []) : undefined
-
-    if (key !== item._key || nextChildren?.changed) {
-      changed = true
-
-      return {
-        ...item,
-        _key: key,
-        ...(nextChildren ? {children: nextChildren.items} : {}),
-      }
-    }
-
-    return item
-  })
-
-  return {items: nextItems, changed}
+    index += 1
+  }
 }
 
+/**
+ * Flattens the tree into display order. With `collapsedKeys`, children of collapsed items are
+ * left out (`skipCollapsedChildren`, used while dragging) or kept (used for rendering, so
+ * collapsed subtrees can animate).
+ */
 export function flattenTree(
   items: Item[],
   collapsedKeys: ReadonlySet<string> = new Set(),
-  parentId: string | null = null,
-  depth = 0,
+  skipCollapsedChildren = true,
 ): FlattenedItem[] {
   const flattenedItems: FlattenedItem[] = []
 
-  const walk = (
-    treeItems: Item[] | undefined,
-    currentParentId: string | null,
-    currentDepth: number,
-  ) => {
-    if (!treeItems) return
+  walkTree(items, (item, id, parentId, depth, index) => {
+    const collapsed = collapsedKeys.has(id)
 
-    treeItems.forEach((item, index) => {
-      const id = getTreeItemId(currentParentId, item._key, index)
-      const collapsed = collapsedKeys.has(id)
+    flattenedItems.push({...item, id, collapsed, parentId, depth, index})
 
-      flattenedItems.push({
-        ...item,
-        id,
-        collapsed,
-        parentId: currentParentId,
-        depth: currentDepth,
-        index,
-      })
-
-      if (!collapsed) {
-        walk(item.children, id, currentDepth + 1)
-      }
-    })
-  }
-
-  walk(items, parentId, depth)
+    return !(collapsed && skipCollapsedChildren)
+  })
 
   return flattenedItems
-}
-
-/**
- * Maps every tree id (see `getTreeItemId`) to the original item value at that position.
- */
-export function indexItemsById(
-  items: Item[],
-  parentId: string | null = null,
-  index: Map<string, Item> = new Map(),
-): Map<string, Item> {
-  items.forEach((item, position) => {
-    const id = getTreeItemId(parentId, item._key, position)
-
-    index.set(id, item)
-
-    if (Array.isArray(item.children)) {
-      indexItemsById(item.children, id, index)
-    }
-  })
-
-  return index
-}
-
-/**
- * Removes the tree bookkeeping that `flattenTree` adds. Only used when the original value is
- * unknown: these names can also be real schema fields, so prefer the original value.
- */
-function omitTreeMeta(item: FlattenedItem): Item {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const {id, parentId, depth, index, collapsed, ...value} = item
-
-  return value
-}
-
-/**
- * Rebuilds a nested value from flattened items.
- *
- * Each node is rebuilt from its original value in `originals` (keyed by tree id), so fields that
- * share a name with the tree bookkeeping (`id`, `parentId`, `depth`, `index`, `collapsed`) are
- * preserved instead of being overwritten or dropped.
- */
-export function buildTree(
-  flattenedItems: FlattenedItem[],
-  originals?: ReadonlyMap<string, Item>,
-): Item[] {
-  const rootChildren: Item[] = []
-  const nodes = new Map<string, Item>()
-  const entries = flattenedItems.map((item) => {
-    const original = originals?.get(item.id) ?? omitTreeMeta(item)
-    const node: Item = {
-      ...original,
-      // Collapsed items keep their children: those aren't part of the flattened list.
-      children: item.collapsed ? original.children || [] : [],
-    }
-
-    return {item, node}
-  })
-
-  for (const {item, node} of entries) {
-    nodes.set(item.id, node)
-  }
-
-  for (const {item, node} of entries) {
-    if (item.parentId === null) {
-      rootChildren.push(node)
-      continue
-    }
-
-    const parent = nodes.get(item.parentId)
-
-    if (parent) {
-      parent.children = [...(parent.children ?? []), node]
-    }
-  }
-
-  return rootChildren
 }
 
 export function getDragDepth(offset: number, indentationWidth: number) {
