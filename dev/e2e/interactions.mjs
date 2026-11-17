@@ -71,7 +71,21 @@ async function pickInSearch(page, query, title) {
   await option.first().click()
 }
 
+/** Adds a reference of the given type from the last "Add item" menu and waits for its search */
+async function addReference(page, field, typeTitle) {
+  await field.getByRole('button', {name: 'Add item'}).last().click()
+  await page.getByRole('menuitem', {name: typeTitle}).click()
+  await waitFor(
+    () =>
+      page.evaluate(
+        () => document.activeElement?.getAttribute('aria-label') === 'Search for a reference',
+      ),
+    'the reference search to be focused',
+  )
+}
+
 const PAGES = ['pageMenu', 'menu-pages']
+const LINKS = ['linkMenu', 'menu-links']
 
 const tests = {
   'removes an item with a single unset': async (page, field) => {
@@ -322,6 +336,73 @@ const tests = {
       }, 'the empty reference removed again')
       // The fixture's own empty reference stays
       assert.equal(await field.getByRole('textbox', {name: 'Search for a reference'}).count(), 1)
+    },
+  },
+
+  'searches every type a reference can point to, and picks either': {
+    doc: LINKS,
+    run: async (page, field) => {
+      await addReference(page, field, 'Page or product')
+      // Before typing: pages and products, under one heading
+      const popover = page.locator('[data-ui="Popover"]')
+      await popover.getByText('Documents', {exact: true}).waitFor()
+      await popover.getByRole('button', {name: /Tote bag/}).waitFor()
+      await popover.getByRole('button', {name: /Journal/}).waitFor()
+      await pickInSearch(page, 'Tote', 'Tote bag')
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-links')
+        return doc?.items.length === 4 && doc.items[3]._ref && doc
+      }, 'a reference to the tote bag product')
+      assert.deepEqual(
+        {_type: draft.items[3]._type, _ref: draft.items[3]._ref, _weak: draft.items[3]._weak},
+        {_type: 'link', _ref: 'prod-tote', _weak: undefined},
+      )
+    },
+  },
+
+  'makes a reference to a draft-only document weak until it is published': {
+    doc: LINKS,
+    run: async (page, field) => {
+      await addReference(page, field, 'Page or product')
+      await pickInSearch(page, 'Draft', 'Draft hat')
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-links')
+        return doc?.items[3]?._ref && doc
+      }, 'a reference to the draft hat')
+      assert.deepEqual(draft.items[3]._ref, 'prod-hat')
+      assert.equal(draft.items[3]._weak, true)
+      assert.deepEqual(draft.items[3]._strengthenOnPublish, {type: 'product'})
+    },
+  },
+
+  'keeps weak reference types weak': {
+    doc: LINKS,
+    run: async (page, field) => {
+      await addReference(page, field, 'Page (weak)')
+      await pickInSearch(page, 'Jour', 'Journal')
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-links')
+        return doc?.items[3]?._ref && doc
+      }, 'a weak reference to Journal')
+      assert.equal(draft.items[3]._type, 'weakPage')
+      assert.equal(draft.items[3]._ref, 'page-journal')
+      assert.equal(draft.items[3]._weak, true)
+      assert.equal(draft.items[3]._strengthenOnPublish, undefined)
+    },
+  },
+
+  "applies the reference type's search filter": {
+    doc: LINKS,
+    run: async (page, field) => {
+      await addReference(page, field, 'Product page')
+      const popover = page.locator('[data-ui="Popover"]')
+      // `slug match "/products*"`: Products, Shoes and Bags, not Home or Journal
+      await popover.getByRole('button', {name: /Shoes/}).waitFor()
+      const titles = await popover.getByRole('button').allInnerTexts()
+      assert.ok(!titles.some((text) => /Home|Journal|Contact/.test(text)), titles.join(', '))
     },
   },
 

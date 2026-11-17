@@ -86,6 +86,20 @@ export const fixtures = [
   page('page-contact', 'Contact', '/contact'),
   page('page-journal', 'Journal', '/journal'),
   {_id: 'menu-pages', _type: 'pageMenu', title: 'Pages and menu items', items: pageMenu},
+  {_id: 'prod-sneaker', _type: 'product', title: 'Sneaker', sku: 'SNK-1'},
+  {_id: 'prod-tote', _type: 'product', title: 'Tote bag', sku: 'TOTE-2'},
+  // Only drafts: a reference to one is weak until it's published
+  {_id: 'drafts.prod-hat', _type: 'product', title: 'Draft hat', sku: 'HAT-3'},
+  {
+    _id: 'menu-links',
+    _type: 'linkMenu',
+    title: 'Links to pages and products',
+    items: [
+      {_key: 'link-home', _type: 'link', _ref: 'page-home'},
+      {_key: 'link-sneaker', _type: 'link', _ref: 'prod-sneaker'},
+      {_key: 'weak-about', _type: 'weakPage', _ref: 'page-about', _weak: true},
+    ],
+  },
   {_id: 'menu-main', _type: 'menu', title: 'Main menu', items: mainMenu},
   {_id: 'menu-empty', _type: 'menu', title: 'Empty menu', items: []},
   {
