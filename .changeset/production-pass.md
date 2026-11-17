@@ -25,6 +25,11 @@ Production pass: safer edits, Sanity-native behavior, translations.
 - Edit and Remove also show on keyboard focus, and always on touch screens.
 - `options.sortable: false` and `disableActions: ['add' | 'remove']` are respected.
 - Items whose nested data can't be shown get a note instead of silently hiding it.
+- Validation errors and warnings show on rows, styled like the Studio's array items; collapsed
+  items show their hidden children's errors.
+- "Add nested item" action on items without children.
+- Expand all / Collapse all, and collapsed items expand when the Studio focuses inside them.
+- Keyboard dragging moves one position per arrow key (dnd-kit 0.5).
 - Strings are translatable through the `sortable-tree` locale namespace (exported as
   `sortableTreeLocaleNamespace`), with an English bundle.
 - Accessible labels for icon buttons, and localized screen reader announcements while dragging.

@@ -9,7 +9,14 @@ inside a single document.
 - Drag to reorder and to change nesting, with a drag handle per item (pointer and keyboard).
 - Items are edited in the Studio's own dialogs, with the schema's previews and initial values.
 - Lists with several item types get a type menu on "Add item".
-- Edit and Remove show on hover, on keyboard focus, and always on touch screens.
+- Edit and Remove show on hover, on keyboard focus, and always on touch screens; items without
+  children get an "Add nested item" action.
+- Invalid items are highlighted like the Studio's own array items, and a collapsed item shows its
+  hidden children's errors.
+- Expand all / Collapse all, and collapsed items open when the Studio focuses something inside
+  them (e.g. jumping to a validation error).
+- Keyboard dragging: Space to pick up, up/down to move one position, left/right to change the
+  nesting level, Space to drop, Escape to cancel.
 - Edits are sent as targeted patches (`insert`/`unset` by `_key`), like the Studio's own array
   input, so concurrent edits by other people are kept.
 - Respects read-only fields, documents and perspectives (published, releases).
