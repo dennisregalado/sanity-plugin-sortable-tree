@@ -105,7 +105,8 @@ function TreeItemComponent({
         shadow={!isHovering && isDragging ? 5 : 0}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
-        onFocus={() => setHasFocus(true)}
+        // Only keyboard focus: a mouse click also focuses the button it lands on
+        onFocus={(event) => setHasFocus(event.target.matches(':focus-visible'))}
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) setHasFocus(false)
         }}
