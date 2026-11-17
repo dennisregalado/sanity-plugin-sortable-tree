@@ -38,7 +38,7 @@ export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
     /** Shown in place of a referenced document that doesn't exist or can't be read */
     'reference.unavailable': 'Document unavailable',
     /** Placeholder and label of the reference search */
-    'reference.search': 'Search',
+    'reference.search': 'Search for a reference',
     /** Heading of the reference search's list when the reference can point to several types */
     'reference.documents': 'Documents',
     /** Heading of the reference search's list while it searches */

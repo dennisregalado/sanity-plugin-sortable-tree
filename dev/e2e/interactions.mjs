@@ -277,7 +277,10 @@ const tests = {
 
       // The new row shows the reference search, focused
       await waitFor(
-        () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search'),
+        () =>
+          page.evaluate(
+            () => document.activeElement?.getAttribute('aria-label') === 'Search for a reference',
+          ),
         'the reference search to be focused',
       )
       // The row only picks existing documents: no "Create" button
@@ -304,7 +307,10 @@ const tests = {
       await field.getByRole('button', {name: 'Add item'}).last().click()
       await page.getByRole('menuitem', {name: 'Page'}).click()
       await waitFor(
-        () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search'),
+        () =>
+          page.evaluate(
+            () => document.activeElement?.getAttribute('aria-label') === 'Search for a reference',
+          ),
         'the reference search to be focused',
       )
       await page.waitForTimeout(500)
@@ -315,7 +321,7 @@ const tests = {
         return doc?.items.length === 5
       }, 'the empty reference removed again')
       // The fixture's own empty reference stays
-      assert.equal(await field.getByRole('textbox', {name: 'Search'}).count(), 1)
+      assert.equal(await field.getByRole('textbox', {name: 'Search for a reference'}).count(), 1)
     },
   },
 
@@ -326,7 +332,10 @@ const tests = {
       // Escape leaves the search and keeps the reference
       await shoes.getByText('Shoes', {exact: true}).first().click()
       await waitFor(
-        () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search'),
+        () =>
+          page.evaluate(
+            () => document.activeElement?.getAttribute('aria-label') === 'Search for a reference',
+          ),
         'clicking the row to open its search',
       )
       await page.keyboard.press('Escape')
@@ -335,7 +344,10 @@ const tests = {
       await shoes.getByText('Shoes', {exact: true}).first().hover()
       await shoes.getByRole('button', {name: 'Replace reference'}).click()
       await waitFor(
-        () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search'),
+        () =>
+          page.evaluate(
+            () => document.activeElement?.getAttribute('aria-label') === 'Search for a reference',
+          ),
         'the reference search to be focused',
       )
       await pickInSearch(page, 'Jour', 'Journal')
