@@ -14,6 +14,7 @@ import {type ArrayOfObjectsItemMember, useTranslation} from 'sanity'
 import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
 import {FlattenedItem} from './types'
+import {useCanHover} from './use-can-hover'
 
 export interface Props {
   item: Pick<FlattenedItem, 'id' | 'collapsed' | 'depth' | 'parentId'>
@@ -61,6 +62,9 @@ function TreeItemComponent({
   const {t} = useTranslation(sortableTreeLocaleNamespace)
   // Hover is local to the row, so moving the mouse doesn't re-render the whole tree
   const [isHovering, setHovering] = useState(false)
+  // Keyboard users reach Edit and Remove by tabbing into the row; touch screens can't hover
+  const [hasFocus, setHasFocus] = useState(false)
+  const canHover = useCanHover()
   const readOnly = useMemo(() => member?.item?.readOnly, [member])
   const {ref, handleRef, isDragSource, isDragging} = useSortable({
     ...config,
@@ -74,6 +78,7 @@ function TreeItemComponent({
   })
 
   const isDisabled = disabled || readOnly
+  const showActions = !isDisabled && (isHovering || hasFocus || !canHover)
 
   return (
     <div
@@ -97,6 +102,10 @@ function TreeItemComponent({
         shadow={!isHovering && isDragging ? 5 : 0}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
+        onFocus={() => setHasFocus(true)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setHasFocus(false)
+        }}
       >
         <Flex gap={1} style={{width: '100%'}} align="center">
           <Tooltip
@@ -158,7 +167,7 @@ function TreeItemComponent({
               </Box>
             </Flex>
           </Button>
-          {isHovering && !isDisabled && (
+          {showActions && (
             <Tooltip
               content={
                 <Text muted size={1}>
@@ -179,7 +188,7 @@ function TreeItemComponent({
               />
             </Tooltip>
           )}
-          {onRemove && isHovering && !isDisabled && (
+          {onRemove && showActions && (
             <Tooltip
               content={
                 <Text muted size={1}>
