@@ -4,7 +4,7 @@ import {type ArrayOfObjectsInputProps, type FormPatch, type Path} from 'sanity'
 
 import {Tree} from './tree'
 import type {Item} from './types'
-import {isTreeItem} from './utils'
+import {isReferenceType, isTreeItem} from './utils'
 
 const EMPTY: Item[] = []
 
@@ -23,6 +23,16 @@ export function SortableTreeInput(props: ArrayOfObjectsInputProps): React.JSX.El
     () => (Array.isArray(props.value) ? props.value.filter(isTreeItem) : EMPTY),
     [props.value],
   )
+
+  // The hidden copy of the default input only hosts the items' edit dialogs. References have no
+  // dialog (the tree row shows their reference search), and a second, hidden reference search
+  // would fight the row's one over focus and clear the reference on "outside" clicks.
+  const hiddenProps = useMemo(() => {
+    const dialogMembers = members.filter(
+      (member) => !(member.kind === 'item' && isReferenceType(member.item.schemaType)),
+    )
+    return dialogMembers.length === members.length ? props : {...props, members: dialogMembers}
+  }, [members, props])
 
   const handlePatch = useCallback((patches: FormPatch[]) => onChange(patches), [onChange])
 
@@ -60,7 +70,7 @@ export function SortableTreeInput(props: ArrayOfObjectsInputProps): React.JSX.El
           pointerEvents: 'none',
         }}
       >
-        {props.renderDefault(props)}
+        {props.renderDefault(hiddenProps)}
       </Box>
     </Stack>
   )

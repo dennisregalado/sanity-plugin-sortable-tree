@@ -28,6 +28,8 @@ import {
   getChildrenPath,
   getMovePatches,
   getRemovePatches,
+  type PatchInput,
+  prefixItemPatches,
 } from './patches'
 import {TreeItem} from './tree-item'
 import {FlattenedItem, type Item} from './types'
@@ -40,6 +42,7 @@ import {
   getDragDepth,
   getProjection,
   isRecord,
+  isReferenceType,
   isTreeItem,
   walkTree,
 } from './utils'
@@ -320,6 +323,8 @@ export function Tree({
   } | null>(null)
   const activeDragItemId = dragSource?.item.id ?? null
   const projectedItemsRef = useRef<FlattenedItem[] | null>(null)
+  // A reference that was just added: its row focuses the reference search, like the Studio's array
+  const [addedReferenceId, setAddedReferenceId] = useState<string | null>(null)
   const manuallyToggledCollapsedKeysRef = useRef<Set<string>>(new Set())
   const toast = useToast()
   const canHover = useCanHover()
@@ -678,6 +683,9 @@ export function Tree({
       const itemPath: Path = [...childrenPath, {_key: key}]
 
       onPatch(getAppendPatches({_key: key, _type: itemSchemaType.name}, childrenPath))
+      setAddedReferenceId(
+        isReferenceType(itemSchemaType) ? (parentId ? `${parentId}/${key}` : key) : null,
+      )
 
       if (parentId !== null) {
         manuallyToggledCollapsedKeysRef.current.add(parentId)
@@ -740,6 +748,14 @@ export function Tree({
       onItemOpen(itemPath, firstField ? [...itemPath, firstField] : undefined)
     },
     [memberById, onItemOpen, treeMeta],
+  )
+
+  const handleItemPatch = useCallback(
+    (id: string, patches: PatchInput) => {
+      const path = treeMeta.pathById.get(id)
+      if (path) onPatch(prefixItemPatches(patches, path))
+    },
+    [onPatch, treeMeta],
   )
 
   const handleRemove = useCallback(
@@ -831,6 +847,8 @@ export function Tree({
               hasChildren={hasChildren}
               onCollapse={handleCollapse}
               onItemOpen={onItemOpen ? handleItemOpen : undefined}
+              onItemPatch={handleItemPatch}
+              autoFocusSearch={addedReferenceId === node.id}
               onRemove={removeDisabled ? undefined : handleRemove}
               sortable={sortable}
               canHover={canHover}
@@ -894,7 +912,9 @@ export function Tree({
       handleAddItem,
       handleCollapse,
       handleItemOpen,
+      handleItemPatch,
       handleRemove,
+      addedReferenceId,
       indentation,
       maxDepth,
       memberById,

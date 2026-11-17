@@ -1,6 +1,13 @@
+import {set, unset} from 'sanity'
 import {describe, expect, it} from 'vitest'
 
-import {getAppendPatches, getArrayAt, getMovePatches, getRemovePatches} from './patches'
+import {
+  getAppendPatches,
+  getArrayAt,
+  getMovePatches,
+  getRemovePatches,
+  prefixItemPatches,
+} from './patches'
 import type {Item} from './types'
 
 const item = (key: string, children?: Item[]): Item => ({
@@ -136,5 +143,23 @@ describe('getMovePatches', () => {
     const inserted = patches.at(-1)
 
     expect(inserted?.type === 'insert' && inserted.items[0]).toEqual(withFields[0])
+  })
+})
+
+describe('prefixItemPatches', () => {
+  const itemPath = [{_key: 'products'}, 'children', {_key: 'ref-shoes'}]
+
+  it('prefixes every patch with the item path', () => {
+    expect(prefixItemPatches([set('page-journal', ['_ref']), unset(['_weak'])], itemPath)).toEqual([
+      {...set('page-journal', ['_ref']), path: [...itemPath, '_ref']},
+      {...unset(['_weak']), path: [...itemPath, '_weak']},
+    ])
+  })
+
+  it('accepts a single patch and a patch event', () => {
+    expect(prefixItemPatches(unset(), itemPath)).toEqual([{...unset(), path: itemPath}])
+    expect(prefixItemPatches({patches: [unset(['_ref'])]}, itemPath)).toEqual([
+      {...unset(['_ref']), path: [...itemPath, '_ref']},
+    ])
   })
 })

@@ -49,6 +49,30 @@ const keys = (items) => (items ?? []).map((item) => item._key)
 const rowOf = (field, text) =>
   field.getByText(text, {exact: true}).first().locator('xpath=ancestor::li[1]')
 
+/** Drags the row showing `text` by its handle, from its center by `dx`/`dy` pixels */
+async function dragRow(page, field, text, dx, dy) {
+  const handle = rowOf(field, text).locator('button').first()
+  const from = await handle.boundingBox()
+  const x = from.x + from.width / 2
+  const y = from.y + from.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + 5, y + 5, {steps: 3})
+  await page.mouse.move(x + dx, y + dy, {steps: 20})
+  await page.waitForTimeout(400)
+  await page.mouse.up()
+}
+
+/** Picks the document titled `title` in the open reference search */
+async function pickInSearch(page, query, title) {
+  await page.keyboard.type(query, {delay: 50})
+  const option = page.locator('[data-ui="Popover"]').getByRole('option', {name: new RegExp(title)})
+  await option.first().waitFor()
+  await option.first().click()
+}
+
+const PAGES = ['pageMenu', 'menu-pages']
+
 const tests = {
   'removes an item with a single unset': async (page, field) => {
     const row = rowOf(field, 'Sale')
@@ -206,6 +230,131 @@ const tests = {
       assert.equal(draft.items.at(-1)._key, 'g98')
       const patches = await sentPatches()
       assert.ok(patches.some((patch) => patch.unset?.includes('items[_key=="g99"]')))
+    },
+  },
+
+  'adds a reference and picks a page in the row': {
+    doc: PAGES,
+    run: async (page, field) => {
+      await field.getByRole('button', {name: 'Add item'}).last().click()
+      await page.getByRole('menuitem', {name: 'Page'}).click()
+
+      // The new row shows the Studio's reference search, focused
+      await waitFor(
+        () => page.evaluate(() => document.activeElement?.dataset.testid === 'autocomplete'),
+        'the reference search to be focused',
+      )
+      await pickInSearch(page, 'Jour', 'Journal')
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-pages')
+        return doc?.items.length === 6 && doc.items[5]._ref && doc
+      }, 'a sixth root item referencing a page')
+
+      assert.equal(draft.items[5]._type, 'reference')
+      assert.equal(draft.items[5]._ref, 'page-journal')
+      assert.equal(await page.getByRole('dialog').count(), 0, 'no dialog opens')
+      const patches = await sentPatches()
+      assert.ok(patches.some((patch) => patch.insert?.after === 'items[-1]'))
+      assert.ok(!patches.some((patch) => patch.set && 'items' in patch.set))
+    },
+  },
+
+  'replaces a nested reference in the row, with patches at its path': {
+    doc: PAGES,
+    run: async (page, field) => {
+      await rowOf(field, 'Shoes').getByRole('button', {name: 'Replace reference'}).click()
+      // The search opens with the current page's title selected, so typing replaces it
+      await waitFor(
+        () =>
+          page.evaluate(() => {
+            const input = document.activeElement
+            return (
+              input?.value === 'Shoes' && input.selectionStart === 0 && input.selectionEnd === 5
+            )
+          }),
+        'the search to show "Shoes", selected',
+      )
+      await pickInSearch(page, 'Jour', 'Journal')
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-pages')
+        return doc?.items[1].children[0]._ref === 'page-journal' && doc
+      }, 'Shoes replaced with Journal')
+
+      assert.deepEqual(keys(draft.items[1].children), ['ref-shoes', 'ref-bags', 'more'])
+      assert.equal(await page.getByRole('dialog').count(), 0, 'no dialog opens')
+      const paths = (await sentPatches()).flatMap((patch) =>
+        Object.values(patch).flatMap((v) => (Array.isArray(v) ? v : Object.keys(v ?? {}))),
+      )
+      assert.ok(
+        paths.every((path) => !path.startsWith('items[_key=="ref-shoes"]')),
+        `patches must target the nested item: ${JSON.stringify(paths)}`,
+      )
+    },
+  },
+
+  "drags a reference into a menu item's children, keeping its fields": {
+    doc: PAGES,
+    run: async (page, field) => {
+      // "About us" (under "Company") to just below "Bags" (under "Products")
+      const bags = await rowOf(field, 'Bags').boundingBox()
+      const about = await rowOf(field, 'About us').locator('button').first().boundingBox()
+      await dragRow(page, field, 'About us', 0, bags.y + bags.height - 6 - about.y)
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-pages')
+        return doc && keys(doc.items[1].children).includes('ref-about') && doc
+      }, 'About us moved under Products')
+
+      const moved = draft.items[1].children.find((child) => child._key === 'ref-about')
+      assert.deepEqual(moved, {
+        _key: 'ref-about',
+        _type: 'reference',
+        _ref: 'page-about',
+        _weak: true,
+        _strengthenOnPublish: {type: 'page'},
+      })
+      assert.deepEqual(keys(draft.items[2].children), ['ref-missing'])
+      const patches = await sentPatches()
+      assert.ok(
+        patches.some((p) =>
+          p.unset?.includes('items[_key=="company"].children[_key=="ref-about"]'),
+        ),
+      )
+    },
+  },
+
+  "won't drop an item into a reference": {
+    doc: PAGES,
+    run: async (page, field) => {
+      // "Bags" follows the reference "Shoes": pulling it right would nest it there
+      await dragRow(page, field, 'Bags', 120, 0)
+      await page.waitForTimeout(1500)
+
+      assert.equal(await lake.doc('drafts.menu-pages'), null, 'nothing is written')
+      assert.deepEqual(await sentPatches(), [])
+    },
+  },
+
+  'removes a nested reference with a single unset': {
+    doc: PAGES,
+    run: async (page, field) => {
+      const row = rowOf(field, 'Bags')
+      await row.getByText('Bags', {exact: true}).first().hover()
+      await row.getByRole('button', {name: 'Remove'}).click()
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-pages')
+        return doc && !keys(doc.items[1].children).includes('ref-bags') && doc
+      }, 'Bags removed')
+
+      assert.deepEqual(keys(draft.items[1].children), ['ref-shoes', 'more'])
+      // The Studio adds an unset of a guard field to every edit action: ignore it
+      const unsets = (await sentPatches())
+        .flatMap((patch) => patch.unset ?? [])
+        .filter((path) => path !== '_empty_action_guard_pseudo_field_')
+      assert.deepEqual(unsets, ['items[_key=="products"].children[_key=="ref-bags"]'])
     },
   },
 

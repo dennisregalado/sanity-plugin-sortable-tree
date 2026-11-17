@@ -33,6 +33,10 @@ export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
     'drag-to-reorder': 'Drag to reorder',
     /** Tooltip and label for the button that opens an item */
     'edit': 'Edit',
+    /** Tooltip and label for the button that swaps a picked reference for the reference search */
+    'reference.replace': 'Replace reference',
+    /** Shown in place of a referenced document that doesn't exist or can't be read */
+    'reference.unavailable': 'Document unavailable',
     /** Tooltip and label for the button that expands an item's children */
     'expand': 'Expand',
     /** Shown when the list is empty */
