@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest'
 
 import type {Item} from './types'
-import {flattenTree, getDescendants, getProjection, walkTree} from './utils'
+import {flattenTree, getDescendants, getProjection, isEmptyItem, walkTree} from './utils'
 
 const item = (key: string, children?: Item[]): Item => ({
   _key: key,
@@ -99,5 +99,17 @@ describe('getProjection', () => {
 
   it('keeps the first item at the root', () => {
     expect(getProjection(flat, 'home', 3)).toMatchObject({depth: 0, parentId: null})
+  })
+})
+
+describe('isEmptyItem', () => {
+  it('is true for new items: a key and a type only', () => {
+    expect(isEmptyItem({_key: 'a', _type: 'menuItem'})).toBe(true)
+    expect(isEmptyItem({_key: 'a', _type: 'menuItem', _weak: true})).toBe(true)
+  })
+
+  it('is false once the item has content, like a duplicate', () => {
+    expect(isEmptyItem({_key: 'a', _type: 'menuItem', title: 'Women'})).toBe(false)
+    expect(isEmptyItem({_key: 'a', children: []})).toBe(false)
   })
 })

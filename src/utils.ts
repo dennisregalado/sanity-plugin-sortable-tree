@@ -22,6 +22,16 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+const EMPTY_ITEM_KEYS = new Set(['_key', '_type', '_weak'])
+
+/**
+ * Whether an item has no content yet, like the Studio's new items (`_key` and `_type` only): only
+ * those get the schema's initial value
+ */
+export function isEmptyItem(value: Record<string, unknown>): boolean {
+  return Object.keys(value).every((key) => EMPTY_ITEM_KEYS.has(key))
+}
+
 /** The valid children of an item. Malformed `children` (not an array) count as none. */
 export function getChildItems(item: Item): Item[] {
   return Array.isArray(item.children) ? item.children : []

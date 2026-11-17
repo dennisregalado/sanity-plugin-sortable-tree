@@ -31,22 +31,12 @@ export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
     'collapse-all': 'Collapse all',
     /** Tooltip and label for the drag handle */
     'drag-to-reorder': 'Drag to reorder',
-    /** Tooltip and label for the button that opens an item */
-    'edit': 'Edit',
     /** Tooltip and label for the button that expands an item's children */
     'expand': 'Expand',
     /** Shown when the list is empty */
     'no-items': 'No items',
-    /** Tooltip and label for the button that removes an item */
-    'remove': 'Remove',
-    /** Number of items nested under an item, or being dragged together */
     /** Shown under an item whose nested items can't be shown (missing or repeated keys, wrong type) */
     'invalid-children': "Some nested items can't be shown here. Open this item to fix them.",
-    /** Label for the icon on items with validation errors or warnings */
-    'validation.errors_one': '{{count}} error',
-    'validation.errors_other': '{{count}} errors',
-    'validation.warnings_one': '{{count}} warning',
-    'validation.warnings_other': '{{count}} warnings',
     /** Fallback title for items without one */
     'untitled': 'Untitled',
     /** Toast when the schema's initial value for a new item can't be resolved */

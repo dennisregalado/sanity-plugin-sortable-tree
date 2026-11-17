@@ -3,39 +3,50 @@ import {useSortable} from '@dnd-kit/react/sortable'
 import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {ChevronRightIcon} from '@sanity/icons/ChevronRight'
 import {DragHandleIcon} from '@sanity/icons/DragHandle'
-import {EditIcon} from '@sanity/icons/Edit'
-import {ErrorOutlineIcon} from '@sanity/icons/ErrorOutline'
-import {TrashIcon} from '@sanity/icons/Trash'
-import {WarningOutlineIcon} from '@sanity/icons/WarningOutline'
-import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
+import {Box, Button, Card, Flex, Text} from '@sanity/ui'
 import {Tooltip} from '@sanity/ui/tooltip'
 import type React from 'react'
 import {memo, useMemo, useState} from 'react'
 import {type ArrayOfObjectsItemMember, useTranslation} from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
-import {MemberPreview, type RenderCallbacks} from './member-preview'
+import {
+  type ArrayAction,
+  type InsertEvent,
+  NativeItem,
+  type RenderCallbacks,
+  type TreeRowActions,
+  TreeRowProvider,
+} from './native-item'
 import {type AddableType, AddChildButton} from './new-tree-item'
 import {FlattenedItem} from './types'
-import {collectValidation} from './validation'
 
 export interface Props {
   item: Pick<FlattenedItem, 'id' | 'collapsed' | 'depth' | 'parentId'>
   member: ArrayOfObjectsItemMember
-  /** Render callbacks for the item's preview */
+  /** Render callbacks for the item */
   callbacks: RenderCallbacks
   index: number
   disabled?: boolean
-  onRemove?: (id: string) => void
+  onRemove: (id: string) => void
+  /** Inserts siblings of the item (the item menu's Duplicate and Add item before/after) */
+  onInsert: (id: string, event: InsertEvent) => void
   onCollapse?: (id: string) => void
   hasChildren?: boolean
-  onItemOpen?: (id: string) => void
+  onItemOpen: (id: string) => void
+  /** The tree's `options.disableActions` (the same array for every row) */
+  disabledActions: readonly ArrayAction[]
   /** Whether the pointer can hover (false on touch screens): measured once for the whole tree */
   canHover?: boolean
   /** False hides the drag handle (`options.sortable: false`) */
   sortable?: boolean
   /** Adds a nested item (with the type picked from `childTypes` when there are several) */
   onAddChild?: (id: string, typeName?: string) => void
+  /**
+   * Keeps room for the "Add nested item" button on every row, so the item's card doesn't change width
+   * when the button appears on hover, and cards line up from row to row
+   */
+  addChildSlot?: boolean
   childTypes?: AddableType[]
 }
 
@@ -56,7 +67,7 @@ const config = {
   plugins: SORTABLE_PLUGINS,
 } as const
 
-// Sanity UI draws the card's border with this custom property: hide it unless the row is hovered
+// Sanity UI draws the card's border with this custom property: it only shows on the lifted row
 const HIDDEN_BORDER_STYLE: React.CSSProperties = Object.fromEntries([
   ['--card-border-color', 'transparent'],
 ])
@@ -77,6 +88,13 @@ const LIFTED_STYLE: React.CSSProperties = Object.fromEntries([
   ],
 ])
 
+// The native item pads itself (4px around its card, then 1px border and 4px padding): pull it in so
+// the preview sits where it always has, next to the handle and chevron
+const ITEM_STYLE: React.CSSProperties = {minWidth: 0, marginLeft: -8}
+
+// As wide as the "Add nested item" button
+const ADD_CHILD_SLOT_STYLE: React.CSSProperties = {flex: 'none', width: 25}
+
 function TreeItemComponent({
   item,
   member,
@@ -84,21 +102,24 @@ function TreeItemComponent({
   disabled = false,
   hasChildren,
   onRemove,
+  onInsert,
   onCollapse,
   onItemOpen,
+  disabledActions,
   callbacks,
   sortable = true,
   canHover = true,
   onAddChild,
+  addChildSlot = false,
   childTypes = NO_TYPES,
 }: Props) {
   const {id, collapsed, depth, parentId} = item
   const {t} = useTranslation(sortableTreeLocaleNamespace)
   // Hover is local to the row, so moving the mouse doesn't re-render the whole tree
   const [isHovering, setHovering] = useState(false)
-  // Keyboard users reach Edit and Remove by tabbing into the row; touch screens can't hover
+  // Keyboard users reach "Add nested item" by tabbing into the row; touch screens can't hover
   const [hasFocus, setHasFocus] = useState(false)
-  const readOnly = useMemo(() => member?.item?.readOnly, [member])
+  const readOnly = member.item.readOnly
   const {ref, handleRef, isDragging} = useSortable({
     ...config,
     id,
@@ -110,23 +131,36 @@ function TreeItemComponent({
     },
   })
 
+  // Memoized, so the native item only re-renders when its member does
+  // Mounts the native item afresh after Duplicate or Add item before/after. Its closed item menu
+  // stays mounted (hidden), and would take focus back from the new item's dialog when the row
+  // re-renders; the Studio's own list mounts its rows again after an insert.
+  const [itemKey, setItemKey] = useState(0)
+  const rowActions = useMemo<TreeRowActions>(
+    () => ({
+      isRoot: parentId === null,
+      disabledActions,
+      onOpen: () => onItemOpen(id),
+      onRemove: () => onRemove(id),
+      onInsert: (event) => {
+        setItemKey((key) => key + 1)
+        onInsert(id, event)
+      },
+    }),
+    [disabledActions, id, onInsert, onItemOpen, onRemove, parentId],
+  )
+
   const isDisabled = disabled || readOnly
   const showActions = !isDisabled && (isHovering || hasFocus || !canHover)
-  // Errors and warnings in the item's fields; a collapsed item also shows its hidden children's
-  const validation = useMemo(() => collectValidation(member.item, collapsed), [member, collapsed])
-  const errors = validation.filter((marker) => marker.level === 'error')
-  const warnings = validation.filter((marker) => marker.level === 'warning')
-  const shownMarkers = errors.length ? errors : warnings
 
   return (
-    <div ref={ref}>
+    // Without a drag handle (`options.sortable: false`) dnd-kit would make the row itself a
+    // disabled draggable `role="button"`, around the item's own buttons: leave it out
+    <div ref={sortable ? ref : undefined}>
       <Card
-        padding={1}
         radius={2}
         border
-        // Like the Studio's array items: invalid rows take the critical (or caution) tone
-        tone={errors.length ? 'critical' : warnings.length ? 'caution' : 'default'}
-        style={isDragging ? LIFTED_STYLE : isHovering ? undefined : HIDDEN_BORDER_STYLE}
+        style={isDragging ? LIFTED_STYLE : HIDDEN_BORDER_STYLE}
         shadow={0}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
@@ -136,7 +170,7 @@ function TreeItemComponent({
           if (!event.currentTarget.contains(event.relatedTarget)) setHasFocus(false)
         }}
       >
-        <Flex gap={1} style={{width: '100%'}} align="center">
+        <Flex gap={1} style={{width: '100%'}} align="center" paddingLeft={1}>
           {sortable && (
             <Tooltip
               content={
@@ -187,105 +221,17 @@ function TreeItemComponent({
               />
             </Tooltip>
           )}
-          <Button
-            disabled={isDisabled}
-            style={{minHeight: 32}}
-            width="fill"
-            mode="bleed"
-            padding={1}
-            paddingX={2}
-            onClick={() => onItemOpen?.(id)}
-          >
-            <Flex align="center" justify="space-between" style={{width: '100%'}}>
-              <Box style={{marginLeft: -8}}>
-                <MemberPreview member={member} callbacks={callbacks} />
-              </Box>
-            </Flex>
-          </Button>
-          {shownMarkers.length > 0 && (
-            <Tooltip
-              content={
-                <Stack gap={3} padding={1}>
-                  {shownMarkers.slice(0, 5).map((marker) => (
-                    <Flex
-                      key={`${marker.message}-${JSON.stringify(marker.path)}`}
-                      align="center"
-                      gap={2}
-                    >
-                      <Card tone={marker.level === 'error' ? 'critical' : 'caution'}>
-                        <Text size={1}>
-                          {marker.level === 'error' ? <ErrorOutlineIcon /> : <WarningOutlineIcon />}
-                        </Text>
-                      </Card>
-                      <Text size={1}>{marker.message}</Text>
-                    </Flex>
-                  ))}
-                </Stack>
-              }
-              animate
-              fallbackPlacements={['right', 'left']}
-              placement="top"
-              portal
-            >
-              <Button
-                aria-label={
-                  errors.length
-                    ? t('validation.errors', {count: errors.length})
-                    : t('validation.warnings', {count: warnings.length})
-                }
-                icon={errors.length ? ErrorOutlineIcon : WarningOutlineIcon}
-                mode="bleed"
-                padding={2}
-                tone={errors.length ? 'critical' : 'caution'}
-                onClick={() => onItemOpen?.(id)}
-              />
-            </Tooltip>
-          )}
-          {onAddChild && showActions && (
-            <AddChildButton id={id} onAdd={onAddChild} types={childTypes} />
-          )}
-          {showActions && (
-            <Tooltip
-              content={
-                <Text muted size={1}>
-                  {t('edit')}
-                </Text>
-              }
-              animate
-              fallbackPlacements={['right', 'left']}
-              placement="top"
-              portal
-            >
-              <Button
-                aria-label={t('edit')}
-                onClick={() => onItemOpen?.(id)}
-                icon={EditIcon}
-                mode="bleed"
-                padding={2}
-              />
-            </Tooltip>
-          )}
-          {onRemove && showActions && (
-            <Tooltip
-              content={
-                <Text muted size={1}>
-                  {t('remove')}
-                </Text>
-              }
-              animate
-              fallbackPlacements={['right', 'left']}
-              placement="top"
-              portal
-            >
-              <Button
-                aria-label={t('remove')}
-                mode="bleed"
-                padding={2}
-                icon={TrashIcon}
-                tone="critical"
-                onClick={() => onRemove(id)}
-              />
-            </Tooltip>
+          <Box flex={1} style={ITEM_STYLE}>
+            <TreeRowProvider value={rowActions}>
+              <NativeItem key={itemKey} member={member} callbacks={callbacks} />
+            </TreeRowProvider>
+          </Box>
+          {addChildSlot && (
+            <Box style={ADD_CHILD_SLOT_STYLE}>
+              {onAddChild && showActions && (
+                <AddChildButton id={id} onAdd={onAddChild} types={childTypes} />
+              )}
+            </Box>
           )}
         </Flex>
       </Card>
@@ -304,12 +250,15 @@ export const TreeItem = memo(TreeItemComponent, (previous, next) => {
     previous.disabled === next.disabled &&
     previous.hasChildren === next.hasChildren &&
     previous.onRemove === next.onRemove &&
+    previous.onInsert === next.onInsert &&
     previous.onCollapse === next.onCollapse &&
     previous.onItemOpen === next.onItemOpen &&
+    previous.disabledActions === next.disabledActions &&
     previous.callbacks === next.callbacks &&
     previous.sortable === next.sortable &&
     previous.canHover === next.canHover &&
     previous.onAddChild === next.onAddChild &&
+    previous.addChildSlot === next.addChildSlot &&
     previous.childTypes === next.childTypes
   )
 })

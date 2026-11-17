@@ -13,14 +13,16 @@ import {
   type ArrayOfObjectsInputProps,
   type ArrayOfObjectsMember,
   type FormPatch,
+  insert,
   type Path,
+  type SchemaType,
   setIfMissing,
   useTranslation,
 } from 'sanity'
 
 import {keepDraggedRowLifted, restrictToList, snapToDepth} from './drag-feedback'
 import {sortableTreeLocaleNamespace} from './i18n'
-import {type RenderCallbacks} from './member-preview'
+import {type ArrayAction, type InsertEvent, type RenderCallbacks} from './native-item'
 import {type AddableType, NewTreeItem} from './new-tree-item'
 import {
   CHILDREN_FIELD,
@@ -39,6 +41,7 @@ import {
   getDescendants,
   getDragDepth,
   getProjection,
+  isEmptyItem,
   isRecord,
   isTreeItem,
   walkTree,
@@ -71,11 +74,13 @@ const COLLAPSE_DURATION_MS = 250
 
 const ROW_STYLE: React.CSSProperties = {listStyle: 'none'}
 
+const NO_ACTIONS: readonly ArrayAction[] = []
+
 /** Trees with more rows than this only mount the rows near the viewport (see useRowWindowing) */
 const WINDOWING_THRESHOLD = 150
 
 // Row geometry, for placeholder heights of rows that haven't been on screen yet
-const ROW_HEIGHT = 51
+const ROW_HEIGHT = 45
 const ROW_GAP = 4
 const ADD_ROW_HEIGHT = 25
 
@@ -238,17 +243,25 @@ function canArrayContainItemType(arraySchemaType: any, itemTypeName?: string) {
 
 function CollapsibleSubtree({
   open,
+  animateMount,
   children,
 }: {
   open: boolean
+  /** Whether to play the expand transition when mounted open (not when windowing remounts it) */
+  animateMount: boolean
   children: (disabled: boolean) => React.ReactNode
 }) {
   const [mounted, setMounted] = useState(open)
-  const [expanded, setExpanded] = useState(open)
+  const [expanded, setExpanded] = useState(open && !animateMount)
+  // Mounted open at full height: nothing to animate until `open` changes
+  const skipAnimation = useRef(open && !animateMount)
 
   useEffect(() => {
     const animationFrames: number[] = []
     let unmountTimeout: ReturnType<typeof setTimeout> | undefined
+
+    if (open && skipAnimation.current) return undefined
+    skipAnimation.current = false
 
     if (open) {
       // Collapse first, then expand on the next frames so the transition plays (also on mount).
@@ -283,6 +296,8 @@ function CollapsibleSubtree({
   return (
     <div
       aria-hidden={!open}
+      // Rows that are collapsing can't be focused or clicked
+      inert={!open}
       style={{
         display: 'grid',
         gridTemplateRows: expanded ? '1fr' : '0fr',
@@ -338,9 +353,16 @@ export function Tree({
   } = props
   // Sanity's own array options apply to the whole tree
   const sortable = schemaType.options?.sortable !== false
-  const disabledActions = schemaType.options?.disableActions
-  const addDisabled = disabledActions?.includes('add') ?? false
-  const removeDisabled = disabledActions?.includes('remove') ?? false
+  const disableActions = schemaType.options?.disableActions
+  const addDisabled = disableActions?.includes('add') ?? false
+  // Whether any row can show "Add nested item"
+  const addChildSlot = !readOnly && !addDisabled && maxDepth > 1
+  // For the rows' item menus. Duplicate adds an item too, but the Studio only checks 'duplicate'.
+  const rowDisabledActions = useMemo(() => {
+    const actions: ArrayAction[] = [...(disableActions ?? NO_ACTIONS)]
+    if (addDisabled && !actions.includes('duplicate')) actions.push('duplicate')
+    return actions.length ? actions : NO_ACTIONS
+  }, [addDisabled, disableActions])
   // dnd-kit's default plugins, with announcements that use item titles and the Studio's locale
   const dragPlugins = useMemo(
     () => [
@@ -551,6 +573,17 @@ export function Tree({
     return {hasChildren, hasInvalidChildren, pathById}
   }, [items])
 
+  // Items that had children before the last change: only items that just got their first child
+  // (or are dragged into) animate their nested list open when it mounts. Rows that windowing mounts
+  // again appear at their full height, so content doesn't shift while scrolling.
+  const [childrenHistory, setChildrenHistory] = useState(() => ({
+    current: treeMeta.hasChildren,
+    previous: treeMeta.hasChildren,
+  }))
+  if (childrenHistory.current !== treeMeta.hasChildren) {
+    setChildrenHistory({current: treeMeta.hasChildren, previous: childrenHistory.current})
+  }
+
   const getDestinationArraySchemaType = useCallback(
     (parentId: string | null) => {
       if (parentId === null) {
@@ -652,6 +685,30 @@ export function Tree({
     [updateProjectedItems],
   )
 
+  // Like the Studio's own array input: new items are inserted right away, then filled in with the
+  // schema's initial value. `setIfMissing` keeps anything the user typed in the meantime.
+  const applyInitialValue = useCallback(
+    async (itemSchemaType: SchemaType, itemPath: Path) => {
+      try {
+        const initialValue: unknown = await resolveInitialValue(itemSchemaType, {})
+        const fields = Object.entries(isRecord(initialValue) ? initialValue : {}).filter(
+          ([name, value]) => name !== '_key' && name !== '_type' && value !== undefined,
+        )
+
+        if (fields.length) {
+          onPatch(fields.map(([name, value]) => setIfMissing(value, [...itemPath, name])))
+        }
+      } catch (error) {
+        toast.push({
+          status: 'error',
+          title: t('initial-value-error.title'),
+          description: error instanceof Error ? error.message : String(error),
+        })
+      }
+    },
+    [onPatch, resolveInitialValue, t, toast],
+  )
+
   const handleAddItem = useCallback(
     (parentId: string | null, typeName?: string) => {
       updateProjectedItems(null)
@@ -683,35 +740,64 @@ export function Tree({
         })
       }
 
-      // Like the Studio's own array input: insert right away, then fill in the schema's
-      // initial value. `setIfMissing` keeps anything the user typed in the meantime.
-      const applyInitialValue = async () => {
-        try {
-          const initialValue: unknown = await resolveInitialValue(itemSchemaType, {})
-          const fields = Object.entries(isRecord(initialValue) ? initialValue : {}).filter(
-            ([name, value]) => name !== '_key' && name !== '_type' && value !== undefined,
-          )
-
-          if (fields.length) {
-            onPatch(fields.map(([name, value]) => setIfMissing(value, [...itemPath, name])))
-          }
-        } catch (error) {
-          toast.push({
-            status: 'error',
-            title: t('initial-value-error.title'),
-            description: error instanceof Error ? error.message : String(error),
-          })
-        }
-      }
-      void applyInitialValue()
+      void applyInitialValue(itemSchemaType, itemPath)
     },
     [
+      applyInitialValue,
       canAddItemToParent,
       getDestinationArraySchemaType,
       onPatch,
-      resolveInitialValue,
-      t,
-      toast,
+      treeMeta,
+      updateProjectedItems,
+    ],
+  )
+
+  // The item menu's Duplicate and Add item before/after, at the item's path in the tree. Like the
+  // Studio's array input: insert, resolve the initial value of new (empty) items, then open the
+  // first inserted item.
+  const handleInsert = useCallback(
+    (id: string, event: InsertEvent) => {
+      updateProjectedItems(null)
+
+      const itemPath = treeMeta.pathById.get(id)
+      const parentId = id.includes('/') ? id.slice(0, id.lastIndexOf('/')) : null
+      const newItems = event.items.map((newItem) =>
+        typeof newItem._key === 'string' && newItem._key
+          ? newItem
+          : {...newItem, _key: randomKey(12)},
+      )
+      const first = newItems[0]
+
+      if (!itemPath || !first) return
+
+      onPatch([insert(newItems, event.position, itemPath)])
+
+      const parentPath = itemPath.slice(0, -1)
+      const newPath: Path = [...parentPath, {_key: first._key}]
+      const arraySchemaType = getDestinationArraySchemaType(parentId)
+
+      const initialValues = event.skipInitialValue
+        ? []
+        : newItems.flatMap((newItem) => {
+            const itemSchemaType = isEmptyItem(newItem)
+              ? getArrayMemberSchemaType(arraySchemaType, newItem._type)
+              : undefined
+            return itemSchemaType
+              ? [applyInitialValue(itemSchemaType, [...parentPath, {_key: newItem._key}])]
+              : []
+          })
+
+      // Open the first new item (and focus it, which focuses its dialog) once its initial value is in
+      void Promise.all(initialValues).then(() => {
+        if (event.open !== false) onItemOpen?.(newPath, newPath)
+        return undefined
+      })
+    },
+    [
+      applyInitialValue,
+      getDestinationArraySchemaType,
+      onItemOpen,
+      onPatch,
       treeMeta,
       updateProjectedItems,
     ],
@@ -799,8 +885,10 @@ export function Tree({
         activeDragItemId !== null &&
         (activeDragItemId === node.id || activeDragItemId.startsWith(`${node.id}/`))
       const isFocusPath = focusedItemIds.includes(node.id)
+      // An item is open while an item inside it is: the open root row hosts the edit dialog
+      const isOpenPath = member?.kind === 'item' && member.open
 
-      if (!windowing.isVisible(node.id) && !isDragPath && !isFocusPath) {
+      if (!windowing.isVisible(node.id) && !isDragPath && !isFocusPath && !isOpenPath) {
         return (
           <li key={`item-${node.id}`} data-tree-id={node.id} style={ROW_STYLE}>
             <div
@@ -823,8 +911,10 @@ export function Tree({
               disabled={sortableDisabled}
               hasChildren={hasChildren}
               onCollapse={handleCollapse}
-              onItemOpen={onItemOpen ? handleItemOpen : undefined}
-              onRemove={removeDisabled ? undefined : handleRemove}
+              onItemOpen={handleItemOpen}
+              onRemove={handleRemove}
+              onInsert={handleInsert}
+              disabledActions={rowDisabledActions}
               sortable={sortable}
               canHover={canHover}
               callbacks={renderCallbacks}
@@ -836,6 +926,7 @@ export function Tree({
                   ? handleAddItem
                   : undefined
               }
+              addChildSlot={addChildSlot}
               childTypes={getAddableTypes(getChildrenArraySchemaType(member.item.schemaType))}
             />
           )}
@@ -847,7 +938,10 @@ export function Tree({
             </Box>
           )}
           {hasChildren && !isDraggingTree && (
-            <CollapsibleSubtree open={!isCollapsed || isOptimisticParent}>
+            <CollapsibleSubtree
+              open={!isCollapsed || isOptimisticParent}
+              animateMount={!childrenHistory.previous.has(node.id)}
+            >
               {(subtreeDisabled) => (
                 <Grid
                   gap={1}
@@ -879,22 +973,24 @@ export function Tree({
     },
     [
       activeDragItemId,
+      addChildSlot,
       canAddItemToParent,
+      childrenHistory,
       dragSource,
       getDestinationArraySchemaType,
       collapsedKeys,
       dragIndexById,
       handleAddItem,
       handleCollapse,
+      handleInsert,
       handleItemOpen,
       handleRemove,
       indentation,
       maxDepth,
       memberById,
-      onItemOpen,
       optimisticParentId,
-      removeDisabled,
       renderCallbacks,
+      rowDisabledActions,
       canHover,
       sortable,
       t,

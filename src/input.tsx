@@ -1,4 +1,3 @@
-import {Box, Stack} from '@sanity/ui'
 import {useCallback, useMemo} from 'react'
 import {type ArrayOfObjectsInputProps, type FormPatch, type Path} from 'sanity'
 
@@ -36,32 +35,14 @@ export function SortableTreeInput(props: ArrayOfObjectsInputProps): React.JSX.El
   )
 
   return (
-    <Stack gap={2} style={{position: 'relative'}}>
-      <Tree
-        members={members}
-        props={props}
-        items={items}
-        maxDepth={maxDepth}
-        readOnly={props.readOnly}
-        onPatch={handlePatch}
-        onItemOpen={handleItemOpen}
-      />
-      <Box
-        aria-hidden
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          width: 1,
-          height: 1,
-          overflow: 'hidden',
-          clipPath: 'inset(50%)',
-          whiteSpace: 'nowrap',
-          pointerEvents: 'none',
-        }}
-      >
-        {props.renderDefault(props)}
-      </Box>
-    </Stack>
+    <Tree
+      members={members}
+      props={props}
+      items={items}
+      maxDepth={maxDepth}
+      readOnly={props.readOnly}
+      onPatch={handlePatch}
+      onItemOpen={handleItemOpen}
+    />
   )
 }
