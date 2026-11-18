@@ -91,7 +91,7 @@ const tests = {
   'removes an item with a single unset': async (page, field) => {
     const row = rowOf(field, 'Sale')
     await row.getByText('Sale', {exact: true}).first().hover()
-    await row.locator('button').last().click()
+    await row.getByRole('button', {name: 'Remove'}).click()
 
     const draft = await waitFor(async () => {
       const doc = await lake.doc('drafts.menu-main')

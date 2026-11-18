@@ -140,6 +140,9 @@ function TreeItemComponent({
 
   const isDisabled = disabled || readOnly
   const showActions = !isDisabled && (isHovering || hasFocus || !canHover)
+  // Parents always show their "Add nested item" action (their nested list has no "Add item"
+  // button); items without children only show it with the other actions
+  const showAddChild = hasChildren ? !isDisabled : showActions
   // Errors and warnings in the item's fields; a collapsed item also shows its hidden children's
   const validation = useMemo(() => collectValidation(member.item, collapsed), [member, collapsed])
   const errors = validation.filter((marker) => marker.level === 'error')
@@ -361,9 +364,6 @@ function TreeItemComponent({
               />
             </Tooltip>
           )}
-          {onAddChild && showActions && (
-            <AddChildButton id={id} onAdd={onAddChild} types={childTypes} />
-          )}
           {showActions && !searching && (
             <Tooltip
               content={
@@ -406,6 +406,10 @@ function TreeItemComponent({
                 onClick={() => onRemove(id)}
               />
             </Tooltip>
+          )}
+          {/* Last, so it doesn't shift when Edit and Remove show */}
+          {onAddChild && showAddChild && (
+            <AddChildButton id={id} onAdd={onAddChild} types={childTypes} />
           )}
         </Flex>
       </Card>

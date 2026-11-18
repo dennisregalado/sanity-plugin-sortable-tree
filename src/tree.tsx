@@ -2,7 +2,7 @@ import {configure} from '@dnd-kit/abstract'
 import {Accessibility, defaultPreset, Feedback} from '@dnd-kit/dom'
 import {isKeyboardEvent} from '@dnd-kit/dom/utilities'
 import {DragDropProvider} from '@dnd-kit/react'
-import {Box, Card, Grid, Text} from '@sanity/ui'
+import {Box, Card, Grid, Stack, Text} from '@sanity/ui'
 import {useToast} from '@sanity/ui/toast'
 import {randomKey} from '@sanity/util/content'
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
@@ -89,7 +89,6 @@ const WINDOWING_THRESHOLD = 150
 // Row geometry, for placeholder heights of rows that haven't been on screen yet
 const ROW_HEIGHT = 51
 const ROW_GAP = 4
-const ADD_ROW_HEIGHT = 25
 
 /** Estimated height of a row with its (expanded) subtree */
 function estimateHeight(node: TreeRenderNode, collapsedKeys: ReadonlySet<string>): number {
@@ -99,7 +98,8 @@ function estimateHeight(node: TreeRenderNode, collapsedKeys: ReadonlySet<string>
     (sum, child) => sum + estimateHeight(child, collapsedKeys) + ROW_GAP,
     0,
   )
-  return ROW_HEIGHT + ROW_GAP + children + ADD_ROW_HEIGHT
+  // The subtree's top margin takes the place of the gap after its last row
+  return ROW_HEIGHT + children
 }
 
 /**
@@ -903,13 +903,9 @@ export function Tree({
               sortable={sortable}
               canHover={canHover}
               callbacks={renderCallbacks}
-              // Items without a visible nested "Add item" button (no children yet, or collapsed)
+              // Nested lists have no "Add item" button of their own: the row's action adds to them
               onAddChild={
-                (!hasRealChildren || isCollapsed) &&
-                node.depth < maxDepth - 1 &&
-                canAddItemToParent(node.id)
-                  ? handleAddItem
-                  : undefined
+                node.depth < maxDepth - 1 && canAddItemToParent(node.id) ? handleAddItem : undefined
               }
               childTypes={getAddableTypes(getChildrenArraySchemaType(member.item.schemaType))}
             />
@@ -945,16 +941,6 @@ export function Tree({
                       />
                     </li>
                   )}
-                  {hasRealChildren && node.depth < maxDepth - 1 && canAddItemToParent(node.id) && (
-                    <li key={`add-${node.id}`} style={{listStyle: 'none'}}>
-                      <NewTreeItem
-                        addItem={handleAddItem}
-                        disabled={disabled || subtreeDisabled}
-                        parentId={node.id}
-                        types={getAddableTypes(getDestinationArraySchemaType(node.id))}
-                      />
-                    </li>
-                  )}
                 </Grid>
               )}
             </CollapsibleSubtree>
@@ -966,7 +952,6 @@ export function Tree({
       activeDragItemId,
       canAddItemToParent,
       dragSource,
-      getDestinationArraySchemaType,
       collapsedKeys,
       dragIndexById,
       handleAddItem,
@@ -1245,39 +1230,40 @@ export function Tree({
         updateProjectedItems(null)
       }}
     >
-      <Card ref={containerRef} border padding={1} radius={2}>
-        <Grid gap={1} as="ul" style={{listStyle: 'none', margin: 0, padding: 0}}>
-          {renderTree.length ? (
-            renderTree.map((node) => renderTreeNode(node))
-          ) : (
-            <Box padding={2} flex={1}>
-              <Text size={1} muted>
-                {t('no-items')}
-              </Text>
-            </Box>
-          )}
+      <Stack gap={2}>
+        <Card ref={containerRef} border padding={1} radius={2}>
+          <Grid gap={1} as="ul" style={{listStyle: 'none', margin: 0, padding: 0}}>
+            {renderTree.length ? (
+              renderTree.map((node) => renderTreeNode(node))
+            ) : (
+              <Box padding={2} flex={1}>
+                <Text size={1} muted>
+                  {t('no-items')}
+                </Text>
+              </Box>
+            )}
 
-          {collapsedLists.collapsible.has(ROOT_LIST) && (
-            <li style={{listStyle: 'none'}}>
-              <ItemsToggle
-                list={ROOT_LIST}
-                count={collapsedLists.collapsible.get(ROOT_LIST) ?? 0}
-                expanded={expandedLists.has(ROOT_LIST)}
-                onToggle={handleToggleList}
-              />
-            </li>
-          )}
-          {!addDisabled && (
-            <li style={{listStyle: 'none'}}>
-              <NewTreeItem
-                addItem={handleAddItem}
-                disabled={!canAddItemToParent(null)}
-                types={getAddableTypes(schemaType)}
-              />
-            </li>
-          )}
-        </Grid>
-      </Card>
+            {collapsedLists.collapsible.has(ROOT_LIST) && (
+              <li style={{listStyle: 'none'}}>
+                <ItemsToggle
+                  list={ROOT_LIST}
+                  count={collapsedLists.collapsible.get(ROOT_LIST) ?? 0}
+                  expanded={expandedLists.has(ROOT_LIST)}
+                  onToggle={handleToggleList}
+                />
+              </li>
+            )}
+          </Grid>
+        </Card>
+        {/* Below the card, like the Studio's own array input */}
+        {!addDisabled && (
+          <NewTreeItem
+            addItem={handleAddItem}
+            disabled={!canAddItemToParent(null)}
+            types={getAddableTypes(schemaType)}
+          />
+        )}
+      </Stack>
     </DragDropProvider>
   )
 }

@@ -44,7 +44,8 @@ function NewTreeItemComponent({
       text={t('add-item')}
       onClick={types.length > 1 ? undefined : handleClick}
       width="fill"
-      padding={2}
+      // The size of the Studio's own array "Add item" button
+      padding={3}
     />
   )
 
