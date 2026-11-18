@@ -9,8 +9,10 @@ inside a single document.
 - Drag to reorder and to change nesting, with a drag handle per item (pointer and keyboard).
 - Items are edited in the Studio's own dialogs, with the schema's previews and initial values.
 - Lists with several item types get a type menu on "Add item".
-- Edit and Remove show on hover, on keyboard focus, and always on touch screens; items without
-  children get an "Add nested item" action.
+- Edit and Remove show on hover, on keyboard focus, and always on touch screens.
+- "Add item" sits below the tree, like the Studio's own arrays. Nested lists are added to with
+  their parent's "Add nested item" action, always shown on items with children (and with Edit and
+  Remove on items without).
 - Invalid items are highlighted like the Studio's own array items, and a collapsed item shows its
   hidden children's errors.
 - Long lists show their first items and "Show all N items", like the Studio's own arrays. Every
