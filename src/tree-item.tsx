@@ -57,7 +57,10 @@ export interface Props {
   canHover?: boolean
   /** False hides the drag handle (`options.sortable: false`) */
   sortable?: boolean
-  /** Adds a nested item (with the type picked from `childTypes` when there are several) */
+  /**
+   * Adds a first nested item (with the type picked from `childTypes` when there are several): for
+   * items without children, whose nested list (and its "Add item" button) doesn't show yet
+   */
   onAddChild?: (id: string, typeName?: string) => void
   childTypes?: AddableType[]
 }
@@ -140,9 +143,6 @@ function TreeItemComponent({
 
   const isDisabled = disabled || readOnly
   const showActions = !isDisabled && (isHovering || hasFocus || !canHover)
-  // Parents always show their "Add nested item" action (their nested list has no "Add item"
-  // button); items without children only show it with the other actions
-  const showAddChild = hasChildren ? !isDisabled : showActions
   // Errors and warnings in the item's fields; a collapsed item also shows its hidden children's
   const validation = useMemo(() => collectValidation(member.item, collapsed), [member, collapsed])
   const errors = validation.filter((marker) => marker.level === 'error')
@@ -407,8 +407,7 @@ function TreeItemComponent({
               />
             </Tooltip>
           )}
-          {/* Last, so it doesn't shift when Edit and Remove show */}
-          {onAddChild && showAddChild && (
+          {onAddChild && showActions && (
             <AddChildButton id={id} onAdd={onAddChild} types={childTypes} />
           )}
         </Flex>

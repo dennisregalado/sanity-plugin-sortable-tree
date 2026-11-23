@@ -89,6 +89,7 @@ const WINDOWING_THRESHOLD = 150
 // Row geometry, for placeholder heights of rows that haven't been on screen yet
 const ROW_HEIGHT = 51
 const ROW_GAP = 4
+const ADD_ROW_HEIGHT = 33
 
 /** Estimated height of a row with its (expanded) subtree */
 function estimateHeight(node: TreeRenderNode, collapsedKeys: ReadonlySet<string>): number {
@@ -99,7 +100,7 @@ function estimateHeight(node: TreeRenderNode, collapsedKeys: ReadonlySet<string>
     0,
   )
   // The subtree's top margin takes the place of the gap after its last row
-  return ROW_HEIGHT + children
+  return ROW_HEIGHT + ADD_ROW_HEIGHT + ROW_GAP + children
 }
 
 /**
@@ -903,9 +904,11 @@ export function Tree({
               sortable={sortable}
               canHover={canHover}
               callbacks={renderCallbacks}
-              // Nested lists have no "Add item" button of their own: the row's action adds to them
+              // Items with children add to their nested list with its own "Add item" button
               onAddChild={
-                node.depth < maxDepth - 1 && canAddItemToParent(node.id) ? handleAddItem : undefined
+                !hasChildren && node.depth < maxDepth - 1 && canAddItemToParent(node.id)
+                  ? handleAddItem
+                  : undefined
               }
               childTypes={getAddableTypes(getChildrenArraySchemaType(member.item.schemaType))}
             />
@@ -930,6 +933,18 @@ export function Tree({
                     padding: 0,
                   }}
                 >
+                  {/* First in the list, like Shopify's "Add block" in its theme editor's tree */}
+                  {node.depth < maxDepth - 1 && canAddItemToParent(node.id) && (
+                    <li key={`add-${node.id}`} style={{listStyle: 'none'}}>
+                      <NewTreeItem
+                        inline
+                        addItem={handleAddItem}
+                        disabled={disabled || subtreeDisabled}
+                        parentId={node.id}
+                        types={getAddableTypes(getDestinationArraySchemaType(node.id))}
+                      />
+                    </li>
+                  )}
                   {node.children.map((child) => renderTreeNode(child, disabled || subtreeDisabled))}
                   {collapsedLists.collapsible.has(node.id) && (
                     <li key={`toggle-${node.id}`} style={{listStyle: 'none'}}>
@@ -955,6 +970,7 @@ export function Tree({
       collapsedKeys,
       dragIndexById,
       handleAddItem,
+      getDestinationArraySchemaType,
       handleCollapse,
       handleItemOpen,
       handleItemPatch,

@@ -1,5 +1,5 @@
 import {AddIcon} from '@sanity/icons/Add'
-import {Box, Button, Text} from '@sanity/ui'
+import {Box, Button, Flex, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ComponentType, memo, type ReactNode, useCallback, useId} from 'react'
@@ -20,6 +20,11 @@ interface Props {
   parentId?: string | null
   /** The item types the list accepts: with more than one, the button opens a menu */
   types?: AddableType[]
+  /**
+   * A nested list's button, first in the list: small and quiet, like the "Show all N items"
+   * toggle. Otherwise the tree's own button below it, like the Studio's array button.
+   */
+  inline?: boolean
 }
 
 const NO_TYPES: AddableType[] = []
@@ -29,6 +34,7 @@ function NewTreeItemComponent({
   disabled = false,
   parentId = null,
   types = NO_TYPES,
+  inline = false,
 }: Props) {
   const {t} = useTranslation(sortableTreeLocaleNamespace)
   const menuId = useId()
@@ -36,22 +42,35 @@ function NewTreeItemComponent({
     addItem(parentId)
   }, [addItem, parentId])
 
-  const button = (
+  const onClick = types.length > 1 ? undefined : handleClick
+  const button = inline ? (
+    // The toggle's button (see ItemsToggle), at the start of the row: its icon lines up with
+    // the rows' drag handles
+    <Button
+      disabled={disabled}
+      fontSize={1}
+      icon={AddIcon}
+      mode="bleed"
+      padding={2}
+      text={t('add-item')}
+      onClick={onClick}
+    />
+  ) : (
     <Button
       disabled={disabled}
       mode="ghost"
       icon={AddIcon}
       text={t('add-item')}
-      onClick={types.length > 1 ? undefined : handleClick}
+      onClick={onClick}
       width="fill"
       // The size of the Studio's own array "Add item" button
       padding={3}
     />
   )
 
-  if (types.length <= 1) return button
+  if (types.length <= 1) return inline ? <Flex paddingLeft={1}>{button}</Flex> : button
 
-  return (
+  const menu = (
     <MenuButton
       id={menuId}
       button={button}
@@ -68,9 +87,15 @@ function NewTreeItemComponent({
         </Menu>
       }
       // As wide as its items and centered under the button, like the row's "Add nested item" menu
-      popover={{portal: true, placement: 'bottom', fallbackPlacements: ['top']}}
+      popover={{
+        portal: true,
+        placement: inline ? 'bottom-start' : 'bottom',
+        fallbackPlacements: inline ? ['top-start'] : ['top'],
+      }}
     />
   )
+
+  return inline ? <Flex paddingLeft={1}>{menu}</Flex> : menu
 }
 
 export const NewTreeItem = memo(NewTreeItemComponent)
