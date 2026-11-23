@@ -1,11 +1,12 @@
 import {AddIcon} from '@sanity/icons/Add'
-import {Box, Button, Flex, Text} from '@sanity/ui'
+import {Box, Button, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ComponentType, memo, type ReactNode, useCallback, useId} from 'react'
 import {useTranslation} from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
+import {Ruled} from './items-toggle'
 
 /** An item type that can be added to a list */
 export interface AddableType {
@@ -21,8 +22,9 @@ interface Props {
   /** The item types the list accepts: with more than one, the button opens a menu */
   types?: AddableType[]
   /**
-   * A nested list's button, first in the list: small and quiet, like the "Show all N items"
-   * toggle. Otherwise the tree's own button below it, like the Studio's array button.
+   * A nested list's button, first in the list: small, quiet and centered between two rules, like
+   * the "Show all N items" toggle. Otherwise the tree's own button below it, like the Studio's
+   * array button.
    */
   inline?: boolean
 }
@@ -44,8 +46,7 @@ function NewTreeItemComponent({
 
   const onClick = types.length > 1 ? undefined : handleClick
   const button = inline ? (
-    // The toggle's button (see ItemsToggle), at the start of the row: its icon lines up with
-    // the rows' drag handles
+    // The toggle's button (see ItemsToggle)
     <Button
       disabled={disabled}
       fontSize={1}
@@ -68,7 +69,7 @@ function NewTreeItemComponent({
     />
   )
 
-  if (types.length <= 1) return inline ? <Flex paddingLeft={1}>{button}</Flex> : button
+  if (types.length <= 1) return inline ? <Ruled>{button}</Ruled> : button
 
   const menu = (
     <MenuButton
@@ -87,15 +88,11 @@ function NewTreeItemComponent({
         </Menu>
       }
       // As wide as its items and centered under the button, like the row's "Add nested item" menu
-      popover={{
-        portal: true,
-        placement: inline ? 'bottom-start' : 'bottom',
-        fallbackPlacements: inline ? ['top-start'] : ['top'],
-      }}
+      popover={{portal: true, placement: 'bottom', fallbackPlacements: ['top']}}
     />
   )
 
-  return inline ? <Flex paddingLeft={1}>{menu}</Flex> : menu
+  return inline ? <Ruled>{menu}</Ruled> : menu
 }
 
 export const NewTreeItem = memo(NewTreeItemComponent)
