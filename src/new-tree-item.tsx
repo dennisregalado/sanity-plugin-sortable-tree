@@ -6,6 +6,7 @@ import {type ComponentType, memo, type ReactNode, useCallback, useId} from 'reac
 import {useTranslation} from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
+import {Ruled} from './items-toggle'
 
 /** An item type that can be added to a list */
 export interface AddableType {
@@ -20,6 +21,12 @@ interface Props {
   parentId?: string | null
   /** The item types the list accepts: with more than one, the button opens a menu */
   types?: AddableType[]
+  /**
+   * A nested list's button, first in the list: small, quiet and centered between two rules, like
+   * the "Show all N items" toggle. Otherwise the tree's own button below it, like the Studio's
+   * array button.
+   */
+  inline?: boolean
 }
 
 const NO_TYPES: AddableType[] = []
@@ -29,6 +36,7 @@ function NewTreeItemComponent({
   disabled = false,
   parentId = null,
   types = NO_TYPES,
+  inline = false,
 }: Props) {
   const {t} = useTranslation(sortableTreeLocaleNamespace)
   const menuId = useId()
@@ -36,22 +44,34 @@ function NewTreeItemComponent({
     addItem(parentId)
   }, [addItem, parentId])
 
-  const button = (
+  const onClick = types.length > 1 ? undefined : handleClick
+  const button = inline ? (
+    // The toggle's button (see ItemsToggle)
+    <Button
+      disabled={disabled}
+      fontSize={1}
+      icon={AddIcon}
+      mode="bleed"
+      padding={2}
+      text={t('add-item')}
+      onClick={onClick}
+    />
+  ) : (
     <Button
       disabled={disabled}
       mode="ghost"
       icon={AddIcon}
       text={t('add-item')}
-      onClick={types.length > 1 ? undefined : handleClick}
+      onClick={onClick}
       width="fill"
       // The size of the Studio's own array "Add item" button
       padding={3}
     />
   )
 
-  if (types.length <= 1) return button
+  if (types.length <= 1) return inline ? <Ruled>{button}</Ruled> : button
 
-  return (
+  const menu = (
     <MenuButton
       id={menuId}
       button={button}
@@ -71,6 +91,8 @@ function NewTreeItemComponent({
       popover={{portal: true, placement: 'bottom', fallbackPlacements: ['top']}}
     />
   )
+
+  return inline ? <Ruled>{menu}</Ruled> : menu
 }
 
 export const NewTreeItem = memo(NewTreeItemComponent)

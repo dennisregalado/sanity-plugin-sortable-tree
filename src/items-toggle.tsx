@@ -1,13 +1,24 @@
 import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {ChevronUpIcon} from '@sanity/icons/ChevronUp'
 import {Box, Button, Flex} from '@sanity/ui'
-import {memo} from 'react'
+import {memo, type ReactNode} from 'react'
 import {useTranslation} from 'sanity'
 
 const RULE_STYLE: React.CSSProperties = {
   flex: 1,
   height: 1,
   backgroundColor: 'var(--card-border-color)',
+}
+
+/** Centers a list's small button between two rules, like the Studio's array toggle */
+export function Ruled({children}: {children: ReactNode}): React.JSX.Element {
+  return (
+    <Flex align="center" gap={2}>
+      <Box style={RULE_STYLE} />
+      {children}
+      <Box style={RULE_STYLE} />
+    </Flex>
+  )
 }
 
 interface Props {
@@ -27,9 +38,9 @@ function ItemsToggleComponent({list, expanded, count, onToggle}: Props) {
   const {t} = useTranslation()
 
   return (
-    <Flex align="center" gap={2} data-testid="array-items-toggle">
-      <Box style={RULE_STYLE} />
+    <Ruled>
       <Button
+        data-testid="array-items-toggle"
         aria-expanded={expanded}
         fontSize={1}
         iconRight={expanded ? ChevronUpIcon : ChevronDownIcon}
@@ -42,8 +53,7 @@ function ItemsToggleComponent({list, expanded, count, onToggle}: Props) {
         }
         onClick={() => onToggle(list)}
       />
-      <Box style={RULE_STYLE} />
-    </Flex>
+    </Ruled>
   )
 }
 
