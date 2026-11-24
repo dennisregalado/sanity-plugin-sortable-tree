@@ -3,6 +3,8 @@ import {LinkIcon} from '@sanity/icons/Link'
 import {PackageIcon} from '@sanity/icons/Package'
 import {defineArrayMember, defineField, defineType} from 'sanity'
 
+import {validateTreeDepth} from '../src'
+
 const menuItem = defineType({
   name: 'menuItem',
   title: 'Menu item',
@@ -96,6 +98,24 @@ const navItem = defineType({
   },
 })
 
+/** A page in a sitemap: its nested pages are in `subpages` (the tree's `options.childrenField`) */
+const sitemapPage = defineType({
+  name: 'sitemapPage',
+  title: 'Page',
+  type: 'object',
+  icon: DocumentIcon,
+  fields: [
+    defineField({name: 'title', type: 'string'}),
+    defineField({name: 'slug', type: 'string'}),
+    defineField({
+      name: 'subpages',
+      type: 'array',
+      of: [defineArrayMember({type: 'sitemapPage'})],
+    }),
+  ],
+  preview: {select: {title: 'title', subtitle: 'slug'}},
+})
+
 /** A named array type: the tree should apply to it too */
 const menuTree = defineType({
   name: 'menuTree',
@@ -115,6 +135,23 @@ export const schemaTypes = [
   page,
   product,
   navItem,
+  sitemapPage,
+  defineType({
+    // Nested items in a field other than `children`
+    name: 'sitemap',
+    title: 'Sitemap',
+    type: 'document',
+    fields: [
+      title,
+      defineField({
+        name: 'items',
+        type: 'array',
+        of: [defineArrayMember({type: 'sitemapPage'})],
+        options: {tree: true, childrenField: 'subpages'},
+        validation: (rule) => rule.custom(validateTreeDepth()),
+      }),
+    ],
+  }),
   defineType({
     name: 'menu',
     title: 'Menu',
@@ -126,6 +163,7 @@ export const schemaTypes = [
         type: 'array',
         of: [defineArrayMember({type: 'menuItem'})],
         options: {tree: true, maxDepth: 3},
+        validation: (rule) => rule.custom(validateTreeDepth()),
       }),
     ],
   }),
@@ -207,6 +245,21 @@ export const schemaTypes = [
     name: 'pageMenu',
     title: 'Page menu',
     type: 'document',
+    fields: [
+      title,
+      defineField({
+        name: 'items',
+        type: 'array',
+        of: [defineArrayMember({type: 'navItem'}), pageReference],
+        options: {tree: true},
+      }),
+    ],
+  }),
+  defineType({
+    name: 'readOnlyPageMenu',
+    title: 'Read-only page menu',
+    type: 'document',
+    readOnly: true,
     fields: [
       title,
       defineField({

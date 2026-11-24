@@ -9,8 +9,8 @@ interface Props {
   /** The reference's path in the document (the pane remembers which reference it was opened from) */
   path: Path
   disabled?: boolean
-  /** Outside the structure tool (no panes to open): what a click does instead */
-  onClick: () => void
+  /** Outside the structure tool (no panes to open): what a click does instead (none: disabled) */
+  onClick?: () => void
   children: ReactNode
 }
 
@@ -42,7 +42,7 @@ export function ReferenceLinkButton({
 
   if (!inPanes || disabled) {
     return (
-      <Button {...BUTTON_PROPS} disabled={disabled} onClick={onClick}>
+      <Button {...BUTTON_PROPS} disabled={disabled || !onClick} onClick={onClick}>
         {children}
       </Button>
     )

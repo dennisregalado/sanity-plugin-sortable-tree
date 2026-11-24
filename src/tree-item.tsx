@@ -25,7 +25,7 @@ import {
 
 import {sortableTreeLocaleNamespace} from './i18n'
 import {MemberPreview, type RenderCallbacks} from './member-preview'
-import {type AddableType, AddChildButton} from './new-tree-item'
+import {AddChildButton} from './new-tree-item'
 import type {PatchInput} from './patches'
 import {ReferenceLinkButton} from './reference-link'
 import {
@@ -34,8 +34,8 @@ import {
   ROW_PREVIEW_HEIGHT,
   useReferencedType,
 } from './reference-search'
-import {FlattenedItem} from './types'
-import {isReferenceType} from './utils'
+import {type AddableType, getReferenceTargets, isReferenceType} from './schema-types'
+import type {FlattenedItem} from './types'
 import {collectValidation} from './validation'
 
 export interface Props {
@@ -48,6 +48,8 @@ export interface Props {
   onRemove?: (id: string) => void
   onCollapse?: (id: string) => void
   hasChildren?: boolean
+  /** The field holding nested items (their validation shows on their own rows) */
+  childrenField: string
   onItemOpen?: (id: string) => void
   /** Focus the reference search once it shows (for a reference that was just added) */
   autoFocusSearch?: boolean
@@ -112,6 +114,7 @@ function TreeItemComponent({
   index,
   disabled = false,
   hasChildren,
+  childrenField,
   onRemove,
   onCollapse,
   onItemOpen,
@@ -129,22 +132,26 @@ function TreeItemComponent({
   const [isHovering, setHovering] = useState(false)
   // Keyboard users reach Edit and Remove by tabbing into the row; touch screens can't hover
   const [hasFocus, setHasFocus] = useState(false)
-  const readOnly = useMemo(() => member?.item?.readOnly, [member])
+  const readOnly = member.item.readOnly === true
   const {ref, handleRef, isDragging} = useSortable({
     ...config,
     id,
     index,
-    disabled: disabled || !sortable,
+    disabled: disabled || readOnly || !sortable,
     data: {
       depth,
       parentId,
     },
   })
 
+  // Read-only items can't be moved, removed or changed, but still open (to read their fields)
   const isDisabled = disabled || readOnly
   const showActions = !isDisabled && (isHovering || hasFocus || !canHover)
   // Errors and warnings in the item's fields; a collapsed item also shows its hidden children's
-  const validation = useMemo(() => collectValidation(member.item, collapsed), [member, collapsed])
+  const validation = useMemo(
+    () => collectValidation(member.item, collapsed, childrenField),
+    [member, collapsed, childrenField],
+  )
   const errors = validation.filter((marker) => marker.level === 'error')
   const warnings = validation.filter((marker) => marker.level === 'warning')
   const shownMarkers = errors.length ? errors : warnings
@@ -179,9 +186,9 @@ function TreeItemComponent({
   )
   // References open their search in the row; other items open in the Studio's dialog
   const handleOpen = useCallback(() => {
-    if (isReference) setReplacing(true)
-    else onItemOpen?.(id)
-  }, [id, isReference, onItemOpen])
+    if (!isReference) onItemOpen?.(id)
+    else if (!readOnly) setReplacing(true)
+  }, [id, isReference, onItemOpen, readOnly])
 
   const rowContent = (
     <Flex align="center" justify="space-between" style={{width: '100%'}}>
@@ -307,14 +314,16 @@ function TreeItemComponent({
               documentId={referenceId}
               documentType={referencedType}
               path={member.item.path}
-              disabled={isDisabled}
-              onClick={handleOpen}
+              disabled={disabled}
+              // Outside the structure tool, a read-only reference has nothing to open
+              onClick={readOnly ? undefined : handleOpen}
             >
               {rowContent}
             </ReferenceLinkButton>
           ) : (
             <Button
-              disabled={isDisabled}
+              // A read-only item still opens its dialog; a read-only reference has nothing to open
+              disabled={disabled || (readOnly && isReference)}
               style={{minHeight: 32}}
               width="fill"
               mode="bleed"
@@ -360,7 +369,9 @@ function TreeItemComponent({
                 mode="bleed"
                 padding={2}
                 tone={errors.length ? 'critical' : 'caution'}
-                onClick={handleOpen}
+                // Opens the item's dialog, where the fields with errors are. A reference has no
+                // dialog: the icon only shows its tooltip (its replace search is the pencil).
+                onClick={isReference ? undefined : handleOpen}
               />
             </Tooltip>
           )}
@@ -416,20 +427,6 @@ function TreeItemComponent({
   )
 }
 
-/** The document types a reference schema type can point to (from its own or a base type's `to`) */
-function getReferenceTargets(schemaType: unknown): SchemaType[] {
-  let type: unknown = schemaType
-  for (let depth = 0; typeof type === 'object' && type !== null && depth < 20; depth++) {
-    if (hasReferenceTargets(type)) return type.to
-    type = 'type' in type ? type.type : undefined
-  }
-  return []
-}
-
-function hasReferenceTargets(type: object): type is {to: SchemaType[]} {
-  return 'to' in type && Array.isArray(type.to)
-}
-
 /** Sets `_ref`, weak until published when the document only exists as a draft */
 function getReferencePatches(target: ReferenceTarget, schemaType: unknown): FormPatch[] {
   const weak =
@@ -469,6 +466,7 @@ export const TreeItem = memo(TreeItemComponent, (previous, next) => {
     // (see `config`), so a stale index is harmless.
     previous.disabled === next.disabled &&
     previous.hasChildren === next.hasChildren &&
+    previous.childrenField === next.childrenField &&
     previous.onRemove === next.onRemove &&
     previous.onCollapse === next.onCollapse &&
     previous.onItemOpen === next.onItemOpen &&

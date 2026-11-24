@@ -1,4 +1,4 @@
-import {set, unset} from 'sanity'
+import {insert, set, setIfMissing, unset} from 'sanity'
 import {describe, expect, it} from 'vitest'
 
 import {
@@ -160,6 +160,23 @@ describe('prefixItemPatches', () => {
     expect(prefixItemPatches(unset(), itemPath)).toEqual([{...unset(), path: itemPath}])
     expect(prefixItemPatches({patches: [unset(['_ref'])]}, itemPath)).toEqual([
       {...unset(['_ref']), path: [...itemPath, '_ref']},
+    ])
+  })
+})
+
+describe('childrenField', () => {
+  const pages: Item[] = [
+    {_key: 'a', _type: 'page', subpages: [{_key: 'a1', _type: 'page'}]},
+    {_key: 'b', _type: 'page'},
+  ]
+
+  it('moves into the nested items of that field', () => {
+    expect(
+      getMovePatches(pages, [{_key: 'b'}], {parentPath: [{_key: 'a'}], afterKey: 'a1'}, 'subpages'),
+    ).toEqual([
+      unset([{_key: 'b'}]),
+      setIfMissing([], [{_key: 'a'}, 'subpages']),
+      insert([pages[1]], 'after', [{_key: 'a'}, 'subpages', {_key: 'a1'}]),
     ])
   })
 })

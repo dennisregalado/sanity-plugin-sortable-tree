@@ -2,14 +2,14 @@ import {randomKey} from '@sanity/util/content'
 import {type FormPatch, insert, type Path, setIfMissing, unset} from 'sanity'
 
 import type {Item} from './types'
-import {isRecord, isTreeItem} from './utils'
-
-/** The field holding nested items */
-export const CHILDREN_FIELD = 'children'
+import {DEFAULT_CHILDREN_FIELD, isRecord, isTreeItem} from './utils'
 
 /** Path of the array that holds the children of the item at `parentPath` (`[]` for the root) */
-export function getChildrenPath(parentPath: Path | null): Path {
-  return parentPath ? [...parentPath, CHILDREN_FIELD] : []
+export function getChildrenPath(
+  parentPath: Path | null,
+  childrenField = DEFAULT_CHILDREN_FIELD,
+): Path {
+  return parentPath ? [...parentPath, childrenField] : []
 }
 
 /** Returns the valid items of the array at `path` (relative to the root array), or `[]` */
@@ -60,7 +60,12 @@ export interface MoveTarget {
  * Keys only need to be unique among siblings, so the item gets a new `_key` if its new siblings
  * already use its key.
  */
-export function getMovePatches(value: Item[], fromPath: Path, target: MoveTarget): FormPatch[] {
+export function getMovePatches(
+  value: Item[],
+  fromPath: Path,
+  target: MoveTarget,
+  childrenField = DEFAULT_CHILDREN_FIELD,
+): FormPatch[] {
   const fromKeySegment = fromPath[fromPath.length - 1]
   if (!fromKeySegment || typeof fromKeySegment !== 'object' || !('_key' in fromKeySegment)) {
     return []
@@ -71,7 +76,7 @@ export function getMovePatches(value: Item[], fromPath: Path, target: MoveTarget
   const moving = fromSiblings.find((item) => isTreeItem(item) && item._key === fromKeySegment._key)
   if (!moving) return []
 
-  const toChildrenPath = getChildrenPath(target.parentPath)
+  const toChildrenPath = getChildrenPath(target.parentPath, childrenField)
   const sameArray = isSamePath(fromParentChildrenPath, toChildrenPath)
 
   if (sameArray) {

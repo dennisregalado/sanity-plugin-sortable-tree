@@ -60,3 +60,13 @@ describe('collectValidation', () => {
     expect(collectValidation({members: [null, 'x', {kind: 'error'}]}, true)).toEqual([])
   })
 })
+
+describe('collectValidation with childrenField', () => {
+  it('leaves out the nested items in that field, and keeps a field named `children`', () => {
+    expect(collectValidation(node, false, 'subpages').map((m) => m.message)).toEqual([
+      'Required',
+      'Bad URL',
+      'Child required',
+    ])
+  })
+})

@@ -1,6 +1,6 @@
 import type {FormNodeValidation} from 'sanity'
 
-import {CHILDREN_FIELD} from './patches'
+import {DEFAULT_CHILDREN_FIELD} from './utils'
 
 /** The parts of a form node (object, array or field) that carry validation */
 interface ValidatedNode {
@@ -31,12 +31,13 @@ function memberNodes(member: unknown): unknown[] {
 
 /**
  * Validation markers of a tree item and everything inside it, collected from the form state (the
- * same markers the Studio's own array items show). The nested items in `children` are left out
- * unless `includeChildren` is set: they have rows of their own.
+ * same markers the Studio's own array items show). The nested items (in `childrenField`) are left
+ * out unless `includeChildren` is set: they have rows of their own.
  */
 export function collectValidation(
   node: unknown,
   includeChildren: boolean,
+  childrenField = DEFAULT_CHILDREN_FIELD,
   isRoot = true,
 ): FormNodeValidation[] {
   if (!isNode(node)) return []
@@ -49,12 +50,12 @@ export function collectValidation(
       !includeChildren &&
       isNode(member) &&
       'name' in member &&
-      member.name === CHILDREN_FIELD
+      member.name === childrenField
     ) {
       continue
     }
     for (const child of memberNodes(member)) {
-      markers.push(...collectValidation(child, includeChildren, false))
+      markers.push(...collectValidation(child, includeChildren, childrenField, false))
     }
   }
 

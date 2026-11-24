@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest'
 
 import type {Item} from './types'
-import {flattenTree, getDescendants, getProjection, walkTree} from './utils'
+import {flattenTree, getDescendants, getFocusItemIds, getProjection, walkTree} from './utils'
 
 const item = (key: string, children?: Item[]): Item => ({
   _key: key,
@@ -124,5 +124,35 @@ describe('getProjection', () => {
     })
     // Without the check, it would nest under the reference
     expect(getProjection(flatRefs, 'about', 1)).toMatchObject({depth: 1, parentId: 'ref'})
+  })
+})
+
+describe('childrenField', () => {
+  const subpages: Item[] = [
+    {_key: 'a', _type: 'page', subpages: [{_key: 'b', _type: 'page', children: [{_key: 'x'}]}]},
+  ]
+
+  it('walks and flattens the nested items in that field', () => {
+    const ids: string[] = []
+    walkTree(subpages, (_item, id) => void ids.push(id), 'subpages')
+    expect(ids).toEqual(['a', 'a/b'])
+    expect(flattenTree(subpages, new Set(), true, 'subpages').map((i) => i.id)).toEqual([
+      'a',
+      'a/b',
+    ])
+  })
+})
+
+describe('getFocusItemIds', () => {
+  it('returns the items on the focus path, through the children field', () => {
+    expect(
+      getFocusItemIds([{_key: 'shop'}, 'children', {_key: 'women'}, 'title'], 'children'),
+    ).toEqual(['shop', 'shop/women'])
+    expect(getFocusItemIds([{_key: 'a'}, 'subpages', {_key: 'b'}], 'subpages')).toEqual([
+      'a',
+      'a/b',
+    ])
+    expect(getFocusItemIds([{_key: 'a'}, 'subpages', {_key: 'b'}], 'children')).toEqual(['a'])
+    expect(getFocusItemIds(undefined)).toEqual([])
   })
 })

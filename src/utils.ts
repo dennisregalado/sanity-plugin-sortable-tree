@@ -2,6 +2,9 @@ import type {UniqueIdentifier} from '@dnd-kit/abstract'
 
 import type {FlattenedItem, Item} from './types'
 
+/** The field holding nested items, unless the tree field's `options.childrenField` says otherwise */
+export const DEFAULT_CHILDREN_FIELD = 'children'
+
 export function getTreeItemId(parentId: string | null, key: string): string {
   return parentId ? `${parentId}/${key}` : key
 }
@@ -22,9 +25,10 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** The valid children of an item. Malformed `children` (not an array) count as none. */
-export function getChildItems(item: Item): Item[] {
-  return Array.isArray(item.children) ? item.children : []
+/** The nested items of an item. Malformed ones (not an array) count as none. */
+export function getChildItems(item: Item, childrenField = DEFAULT_CHILDREN_FIELD): Item[] {
+  const children = item[childrenField]
+  return Array.isArray(children) ? children : []
 }
 
 /**
@@ -41,6 +45,7 @@ export function walkTree(
     depth: number,
     index: number,
   ) => boolean | void,
+  childrenField = DEFAULT_CHILDREN_FIELD,
   parentId: string | null = null,
   depth = 0,
 ): void {
@@ -56,7 +61,7 @@ export function walkTree(
     const id = getTreeItemId(parentId, item._key)
     // Returning false skips the item's children
     if (visit(item, id, parentId, depth, index) !== false) {
-      walkTree(item.children, visit, id, depth + 1)
+      walkTree(item[childrenField], visit, childrenField, id, depth + 1)
     }
     index += 1
   }
@@ -71,16 +76,21 @@ export function flattenTree(
   items: Item[],
   collapsedKeys: ReadonlySet<string> = new Set(),
   skipCollapsedChildren = true,
+  childrenField = DEFAULT_CHILDREN_FIELD,
 ): FlattenedItem[] {
   const flattenedItems: FlattenedItem[] = []
 
-  walkTree(items, (item, id, parentId, depth, index) => {
-    const collapsed = collapsedKeys.has(id)
+  walkTree(
+    items,
+    (item, id, parentId, depth, index) => {
+      const collapsed = collapsedKeys.has(id)
 
-    flattenedItems.push({...item, id, collapsed, parentId, depth, index})
+      flattenedItems.push({...item, id, collapsed, parentId, depth, index})
 
-    return !(collapsed && skipCollapsedChildren)
-  })
+      return !(collapsed && skipCollapsedChildren)
+    },
+    childrenField,
+  )
 
   return flattenedItems
 }
@@ -192,14 +202,24 @@ export function getDescendants(
 }
 
 /**
- * Whether a schema type is a reference (or a type based on one). Sanity's own
- * `isReferenceSchemaType` is internal, so this mirrors it: walk the type chain to `reference`.
+ * Tree ids of every item on `focusPath` (relative to the tree's array): the items around the
+ * focus, then the focused item itself
  */
-export function isReferenceType(schemaType: unknown): boolean {
-  let type: unknown = schemaType
-  for (let depth = 0; isRecord(type) && depth < 20; depth++) {
-    if (type.name === 'reference') return true
-    type = type.type
+export function getFocusItemIds(
+  focusPath: readonly unknown[] | undefined,
+  childrenField = DEFAULT_CHILDREN_FIELD,
+): string[] {
+  const ids: string[] = []
+  let id: string | null = null
+
+  for (let index = 0; index < (focusPath?.length ?? 0); index += 2) {
+    const segment = focusPath?.[index]
+    if (!isRecord(segment) || typeof segment._key !== 'string') break
+
+    id = getTreeItemId(id, segment._key)
+    ids.push(id)
+    if (focusPath?.[index + 1] !== childrenField) break
   }
-  return false
+
+  return ids
 }

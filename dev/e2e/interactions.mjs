@@ -586,6 +586,117 @@ const tests = {
     },
   },
 
+  'opens a read-only item in the Studio dialog': {
+    doc: ['readOnlyMenu', 'menu-readonly'],
+    run: async (page, field) => {
+      // No drag handle, Edit or Remove to act on, but the item still opens to read its fields
+      const row = rowOf(field, 'Women')
+      await row.getByText('Women', {exact: true}).first().hover()
+      assert.equal(await row.getByRole('button', {name: 'Remove'}).count(), 0)
+      await row.getByText('Women', {exact: true}).first().click()
+      const dialog = page.getByRole('dialog').last()
+      await dialog.waitFor()
+      await waitFor(
+        async () => (await dialog.locator('input').first().inputValue()) === 'Women',
+        'the dialog to show the Women item',
+      )
+      assert.equal(await lake.doc('drafts.menu-readonly'), null, 'nothing is written')
+    },
+  },
+
+  'opens a read-only reference in a pane': {
+    doc: ['readOnlyPageMenu', 'menu-pages-readonly'],
+    run: async (page, field) => {
+      await field.getByText('Shoes', {exact: true}).first().click()
+      await waitFor(() => page.url().includes('page-shoes'), 'the Shoes page to open in a pane')
+      // The replace search never shows for a read-only reference
+      assert.equal(await field.getByRole('textbox', {name: 'Search for a reference'}).count(), 0)
+    },
+  },
+
+  "the validation icon of a reference doesn't open its replace search": {
+    doc: PAGES,
+    run: async (page, field) => {
+      const row = rowOf(field, 'Document unavailable')
+      await row.getByRole('button', {name: /error/}).click()
+      await page.waitForTimeout(500)
+      assert.equal(await row.getByRole('textbox', {name: 'Search for a reference'}).count(), 0)
+    },
+  },
+
+  'remembers collapsed and expanded items after a reload': async (page, field) => {
+    await rowOf(field, 'Shop').getByRole('button', {name: 'Collapse'}).first().click()
+    await waitFor(
+      async () => (await field.getByText('Women', {exact: true}).count()) === 0,
+      'Shop to collapse',
+    )
+
+    await page.reload()
+    await field.locator('li').first().waitFor({timeout: 120000})
+    await page.waitForTimeout(1500)
+
+    assert.equal(await field.getByText('Women', {exact: true}).count(), 0, 'Shop stays collapsed')
+    assert.equal(await field.getByText('Team', {exact: true}).count(), 1, 'About stays open')
+    await rowOf(field, 'Shop').getByRole('button', {name: 'Expand'}).first().click()
+    await field.getByText('Women', {exact: true}).first().waitFor()
+    // Expanding and collapsing never changes the document
+    assert.equal(await lake.doc('drafts.menu-main'), null, 'nothing is written')
+  },
+
+  'shows items nested deeper than maxDepth, with an error': {
+    doc: ['menu', 'menu-deep'],
+    run: async (page, field) => {
+      await field.getByText('Level 5', {exact: true}).first().waitFor()
+      // validateTreeDepth flags the outermost item that's too deep, on its own row
+      // (`:scope > div`: the row itself, not the nested rows in its `li`)
+      const ownRow = (text) => rowOf(field, text).locator(':scope > div:first-child')
+      await ownRow('Level 4').getByRole('button', {name: '1 error'}).waitFor()
+      assert.equal(await ownRow('Level 3').getByRole('button', {name: /error/}).count(), 0)
+      // ...and it can be removed
+      const row = rowOf(field, 'Level 4')
+      await row.getByText('Level 4', {exact: true}).first().hover()
+      await row.getByRole('button', {name: 'Remove'}).first().click()
+      await waitFor(async () => {
+        const doc = await lake.doc('drafts.menu-deep')
+        return doc && !doc.items[0].children[0].children[0].children?.length && doc
+      }, 'Level 4 removed')
+    },
+  },
+
+  'moves and adds items in a custom children field': {
+    doc: ['sitemap', 'sitemap-main'],
+    run: async (page, field) => {
+      // Contact: up past About, then one level in, under About
+      const handle = rowOf(field, 'Contact').locator('button').first()
+      await handle.focus()
+      for (const key of ['Space', 'ArrowRight', 'Space']) {
+        await page.keyboard.press(key)
+        await page.waitForTimeout(300)
+      }
+
+      const draft = await waitFor(async () => {
+        const doc = await lake.doc('drafts.sitemap-main')
+        return doc && !keys(doc.items).includes('contact') && doc
+      }, 'Contact moved under About')
+      assert.deepEqual(keys(draft.items[2].subpages), ['contact'])
+      assert.equal(draft.items[2].children, undefined)
+      const patches = await sentPatches()
+      assert.ok(
+        patches.some((patch) => patch.setIfMissing?.['items[_key=="about"].subpages']),
+        `expected a setIfMissing on subpages, got ${JSON.stringify(patches)}`,
+      )
+
+      // Home has no subpages yet: its row adds the first one
+      const home = rowOf(field, 'Home')
+      await home.getByText('Home', {exact: true}).first().hover()
+      await home.getByRole('button', {name: 'Add nested item'}).click()
+      await waitFor(async () => {
+        const doc = await lake.doc('drafts.sitemap-main')
+        return doc?.items[0].subpages?.length === 1 && doc
+      }, 'a subpage under Home')
+    },
+  },
+
   'opens nested items in the Studio dialog': async (page, field) => {
     await field.getByText('Dresses', {exact: true}).first().click()
     const dialog = page.getByRole('dialog').last()

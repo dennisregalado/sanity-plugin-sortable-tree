@@ -76,6 +76,25 @@ const navItem = (key, title, link, children) => ({
   ...(children ? {children} : {}),
 })
 
+const sitemapPage = (key, title, slug, subpages) => ({
+  _key: key,
+  _type: 'sitemapPage',
+  title,
+  slug,
+  ...(subpages ? {subpages} : {}),
+})
+
+// Pages nested in `subpages` (the tree's `options.childrenField`)
+const sitemap = [
+  sitemapPage('home', 'Home', '/'),
+  sitemapPage('products', 'Products', '/products', [
+    sitemapPage('shoes', 'Shoes', '/products/shoes'),
+    sitemapPage('bags', 'Bags', '/products/bags'),
+  ]),
+  sitemapPage('about', 'About', '/about'),
+  sitemapPage('contact', 'Contact', '/contact'),
+]
+
 // Menu items and references to pages, mixed at every level
 const pageMenu = [
   ref('ref-home', 'page-home'),
@@ -200,4 +219,27 @@ export const fixtures = [
     ],
   },
   {_id: 'menu-big', _type: 'menu', title: '500 items', items: bigMenu(500)},
+  // Nested deeper than the field's `maxDepth` (3), e.g. written through the API
+  {
+    _id: 'menu-deep',
+    _type: 'menu',
+    title: 'Deeper than maxDepth',
+    items: [
+      item('l1', 'Level 1', '/1', [
+        item('l2', 'Level 2', '/1/2', [
+          item('l3', 'Level 3', '/1/2/3', [
+            item('l4', 'Level 4', '/1/2/3/4', [item('l5', 'Level 5', '/1/2/3/4/5')]),
+          ]),
+        ]),
+      ]),
+      item('other', 'Other', '/other'),
+    ],
+  },
+  {_id: 'sitemap-main', _type: 'sitemap', title: 'Sitemap', items: sitemap},
+  {
+    _id: 'menu-pages-readonly',
+    _type: 'readOnlyPageMenu',
+    title: 'Read-only pages and menu items',
+    items: pageMenu,
+  },
 ]
