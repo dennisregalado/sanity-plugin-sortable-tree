@@ -52,7 +52,6 @@ export const sortableTreeUsEnglishLocaleBundle = defineLocaleResourceBundle({
     'no-items': 'No items',
     /** Tooltip and label for the button that removes an item */
     'remove': 'Remove',
-    /** Number of items nested under an item, or being dragged together */
     /** Shown under an item whose nested items can't be shown (missing or repeated keys, wrong type) */
     'invalid-children': "Some nested items can't be shown here. Open this item to fix them.",
     /** Label for the icon on items with validation errors or warnings */

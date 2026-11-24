@@ -2,18 +2,12 @@ import {AddIcon} from '@sanity/icons/Add'
 import {Box, Button, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
-import {type ComponentType, memo, type ReactNode, useCallback, useId} from 'react'
+import {memo, useCallback, useId} from 'react'
 import {useTranslation} from 'sanity'
 
 import {sortableTreeLocaleNamespace} from './i18n'
 import {Ruled} from './items-toggle'
-
-/** An item type that can be added to a list */
-export interface AddableType {
-  name: string
-  title: string
-  icon?: ComponentType | ReactNode
-}
+import type {AddableType} from './schema-types'
 
 interface Props {
   addItem: (parentId: string | null, typeName?: string) => void

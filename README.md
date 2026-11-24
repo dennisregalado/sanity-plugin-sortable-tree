@@ -4,7 +4,10 @@ A sortable, nested tree input for Sanity array fields: drag items to reorder the
 them under other items. Built for menus, navigation, page trees and other hierarchies that live
 inside a single document.
 
-<!-- Screenshot/GIF: the tree input in the Studio (light and dark) -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/tree.dark.png">
+  <img alt="A menu edited as a sortable tree in Sanity Studio: nested items with drag handles, collapse toggles and Add item buttons" src="docs/tree.light.png" width="600">
+</picture>
 
 - Drag to reorder and to change nesting, with a drag handle per item (pointer and keyboard).
 - Items are edited in the Studio's own dialogs, with the schema's previews and initial values.
@@ -18,12 +21,17 @@ inside a single document.
 - Long lists show their first items and "Show all N items", like the Studio's own arrays. Every
   list collapses on its own: the root and each item's nested items.
 - Collapsed items and lists open when the Studio focuses something inside them (e.g. jumping to
-  a validation error).
+  a validation error). The items you expand or collapse are remembered (in the browser) for the
+  next time you open the document.
 - Keyboard dragging: Space to pick up, up/down to move one position, left/right to change the
   nesting level, Space to drop, Escape to cancel.
 - Edits are sent as targeted patches (`insert`/`unset` by `_key`), like the Studio's own array
   input, so concurrent edits by other people are kept.
-- Respects read-only fields, documents and perspectives (published, releases).
+- Respects read-only fields, documents and perspectives (published, releases). Read-only items
+  still open, to read their fields, and read-only references still open their document.
+- Nested items in `children`, or any field you name with `options.childrenField`.
+- A `validateTreeDepth()` rule to flag items nested deeper than `maxDepth` (e.g. written
+  through the API).
 - Translatable, with an English locale bundle.
 
 ## Installation
@@ -61,7 +69,8 @@ export default defineConfig({
 ```
 
 Then turn on the tree for an array field with `options.tree`. Nested items live in a `children`
-array field on each item, usually of the same type, which makes the item type recursive:
+array field on each item (or another field, with `childrenField`), usually of the same type, which
+makes the item type recursive:
 
 ```ts
 import {defineArrayMember, defineField, defineType} from 'sanity'
@@ -108,17 +117,18 @@ defineType({
 })
 ```
 
-The options are typed: with the plugin installed, `tree` and `maxDepth` autocomplete in
-`options` of any array field.
+The options are typed: with the plugin installed, `tree`, `maxDepth` and `childrenField`
+autocomplete in `options` of any array field.
 
 ### Options
 
 Set these in the array field's `options`:
 
-| Option     | Type      | Default | Description                                                             |
-| ---------- | --------- | ------- | ----------------------------------------------------------------------- |
-| `tree`     | `boolean` | `false` | Edit the array as a sortable tree.                                      |
-| `maxDepth` | `number`  | `3`     | How many levels deep items can be nested. `1` allows no nesting at all. |
+| Option          | Type      | Default      | Description                                                             |
+| --------------- | --------- | ------------ | ----------------------------------------------------------------------- |
+| `tree`          | `boolean` | `false`      | Edit the array as a sortable tree.                                      |
+| `maxDepth`      | `number`  | `3`          | How many levels deep items can be nested. `1` allows no nesting at all. |
+| `childrenField` | `string`  | `'children'` | The field holding each item's nested items (see below).                 |
 
 Sanity's own array options apply to the whole tree: `sortable: false` hides the drag handles, and
 `disableActions: ['add']` / `['remove']` hide the Add and Remove buttons.
@@ -151,6 +161,50 @@ defineField({
 A list opens by itself when an item is added to it, or when the Studio focuses an item past its
 limit. Dragging doesn't open lists: drop among the items that show, and the rest stay after them.
 
+**Another field for nested items:** by default, nested items are in each item's `children` field.
+To use another name, set `childrenField` on the tree field. It's the same field on every item type
+that can have nested items:
+
+```ts
+defineType({
+  name: 'sitemapPage',
+  type: 'object',
+  fields: [
+    defineField({name: 'title', type: 'string'}),
+    defineField({name: 'subpages', type: 'array', of: [{type: 'sitemapPage'}]}),
+  ],
+})
+
+defineField({
+  name: 'pages',
+  type: 'array',
+  of: [{type: 'sitemapPage'}],
+  options: {tree: true, childrenField: 'subpages'},
+})
+```
+
+### Validating the depth
+
+The tree never nests items deeper than `maxDepth`, but data written through the API (or before
+`maxDepth` was lowered) can be. Those items still show, so they can be moved up or removed. To
+flag them, add `validateTreeDepth()` to the field's validation: each item that's too deep gets an
+error on its own row (only the outermost one: its nested items move with it).
+
+```ts
+import {validateTreeDepth} from 'sanity-plugin-sortable-tree'
+
+defineField({
+  name: 'items',
+  type: 'array',
+  of: [defineArrayMember({type: 'menuItem'})],
+  options: {tree: true, maxDepth: 3},
+  validation: (rule) => rule.custom(validateTreeDepth()),
+})
+```
+
+It reads `maxDepth` and `childrenField` from the field's options. To set them yourself, or reword
+the error: `validateTreeDepth({maxDepth: 2, childrenField: 'subpages', message: (max) => ...})`.
+
 ### How the data is stored
 
 The value is a plain Sanity array. Each item keeps its own fields; nested items are in its
@@ -171,7 +225,9 @@ The value is a plain Sanity array. Each item keeps its own fields; nested items 
 - Moving an item moves its children with it. Keys only need to be unique among siblings, so an
   item gets a new `_key` if it moves next to an item with the same key.
 - An item with `collapsed: true` in its stored value starts out collapsed. Expanding and collapsing
-  in the Studio doesn't change the document.
+  in the Studio doesn't change the document: the items you expand or collapse are remembered in
+  your browser's local storage instead, per user, document and field, and win over
+  `collapsed: true` the next time you open the document.
 - Nested items the tree can't show (no `_key`, a repeated `_key`, or `children` that isn't an
   array) are left untouched, and a note under their parent says so. Open the parent item to fix
   them with the Studio's own tools.
@@ -323,7 +379,8 @@ npm run build      # verify the package and build dist/
 
 The test Studio in `dev/` uses the plugin straight from `src/`. It talks to an in-memory stand-in
 for the Content Lake (`dev/fake-lake`), so it runs without a project, login or network, and its
-fixtures cover nested, empty, read-only, named, mixed-type, malformed and 500-item menus.
+fixtures cover nested, empty, read-only, named, mixed-type, malformed, too-deep, custom
+`childrenField` and 500-item menus.
 `npm run screenshots <dir>` captures every scenario in light and dark mode, for reviewing visual
 changes.
 

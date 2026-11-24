@@ -1,5 +1,5 @@
 import type {Item} from './types'
-import {walkTree} from './utils'
+import {DEFAULT_CHILDREN_FIELD, walkTree} from './utils'
 
 /**
  * Key of a list in the tree: its parent's tree id, or `ROOT_LIST` for the field's own array.
@@ -71,15 +71,20 @@ export function getCollapsedLists(
   items: Item[],
   getLimit: (parentId: string | null) => number,
   expanded: ReadonlySet<string>,
+  childrenField = DEFAULT_CHILDREN_FIELD,
 ): CollapsedLists {
   const counts = new Map<string, number>()
   const limits = new Map<string, number>()
 
-  walkTree(items, (_item, _id, parentId) => {
-    const key = listKey(parentId)
-    counts.set(key, (counts.get(key) ?? 0) + 1)
-    if (!limits.has(key)) limits.set(key, getLimit(parentId))
-  })
+  walkTree(
+    items,
+    (_item, _id, parentId) => {
+      const key = listKey(parentId)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+      if (!limits.has(key)) limits.set(key, getLimit(parentId))
+    },
+    childrenField,
+  )
 
   const collapsible = new Map<string, number>()
   for (const [key, count] of counts) {
@@ -88,21 +93,25 @@ export function getCollapsedLists(
 
   const hidden = new Set<string>()
   const positions = new Map<string, number>()
-  walkTree(items, (_item, id, parentId) => {
-    const key = listKey(parentId)
-    const position = positions.get(key) ?? 0
-    positions.set(key, position + 1)
+  walkTree(
+    items,
+    (_item, id, parentId) => {
+      const key = listKey(parentId)
+      const position = positions.get(key) ?? 0
+      positions.set(key, position + 1)
 
-    if (parentId !== null && hidden.has(parentId)) {
-      hidden.add(id)
-    } else if (
-      collapsible.has(key) &&
-      !expanded.has(key) &&
-      position >= (limits.get(key) ?? Number.POSITIVE_INFINITY)
-    ) {
-      hidden.add(id)
-    }
-  })
+      if (parentId !== null && hidden.has(parentId)) {
+        hidden.add(id)
+      } else if (
+        collapsible.has(key) &&
+        !expanded.has(key) &&
+        position >= (limits.get(key) ?? Number.POSITIVE_INFINITY)
+      ) {
+        hidden.add(id)
+      }
+    },
+    childrenField,
+  )
 
   return {hidden, collapsible}
 }

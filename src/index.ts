@@ -9,6 +9,8 @@ export {SortableTreeInput}
 export type {Item, FlattenedItem} from './types'
 export type {SortableTreeArrayOptions}
 export {sortableTreeLocaleNamespace}
+export {validateTreeDepth} from './validate-tree-depth'
+export type {TreeDepthValidationOptions} from './validate-tree-depth'
 
 /**
  * Usage in `sanity.config.ts` (or .js)
@@ -24,7 +26,7 @@ export {sortableTreeLocaleNamespace}
  * ```
  *
  * Enable on an array field with `options: { tree: true }`.
- * Optionally set `options.maxDepth` (default 3).
+ * Optionally set `options.maxDepth` (default 3) and `options.childrenField` (default `children`).
  *
  * @public
  */

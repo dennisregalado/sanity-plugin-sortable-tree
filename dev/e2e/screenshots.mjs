@@ -142,6 +142,55 @@ const scenarios = {
     },
   },
   'readonly': {url: docUrl('readOnlyMenu', 'menu-readonly')},
+  'readonly-hover': {
+    url: docUrl('readOnlyMenu', 'menu-readonly'),
+    async act(page, field) {
+      await field.getByText('Shop', {exact: true}).first().hover()
+      await page.waitForTimeout(300)
+    },
+  },
+  'readonly-open': {
+    url: docUrl('readOnlyMenu', 'menu-readonly'),
+    viewport: true,
+    async act(page, field) {
+      // A read-only item still opens, to read its fields
+      await field
+        .getByText('Women', {exact: true})
+        .first()
+        .click({timeout: 3000})
+        .catch(() => {})
+      await page.waitForTimeout(1200)
+    },
+  },
+  'readonly-refs': {url: docUrl('readOnlyPageMenu', 'menu-pages-readonly')},
+  'readonly-refs-open': {
+    url: docUrl('readOnlyPageMenu', 'menu-pages-readonly'),
+    viewport: true,
+    async act(page, field) {
+      // A read-only reference still opens its document in a pane
+      await field
+        .getByText('Shoes', {exact: true})
+        .first()
+        .click({timeout: 3000})
+        .catch(() => {})
+      await page.waitForTimeout(2500)
+    },
+  },
+  'deep': {url: docUrl('menu', 'menu-deep')},
+  'deep-hover': {
+    url: docUrl('menu', 'menu-deep'),
+    async act(page, field) {
+      // The error's tooltip on the item nested too deep
+      const row = field.getByText('Level 4', {exact: true}).first().locator('xpath=ancestor::li[1]')
+      await row
+        .getByRole('button', {name: /error/})
+        .first()
+        .hover({timeout: 3000})
+        .catch(() => {})
+      await page.waitForTimeout(600)
+    },
+  },
+  'sitemap': {url: docUrl('sitemap', 'sitemap-main')},
   'named': {url: docUrl('namedMenu', 'menu-named')},
   'mixed': {url: docUrl('mixedMenu', 'menu-mixed')},
   'mixed-menu': {

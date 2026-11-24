@@ -2,9 +2,11 @@ import {Box, Stack} from '@sanity/ui'
 import {useCallback, useMemo} from 'react'
 import {type ArrayOfObjectsInputProps, type FormPatch, type Path} from 'sanity'
 
+import {isReferenceType} from './schema-types'
 import {Tree} from './tree'
 import type {Item} from './types'
-import {isReferenceType, isTreeItem} from './utils'
+import {DEFAULT_CHILDREN_FIELD, isTreeItem} from './utils'
+import {DEFAULT_MAX_DEPTH} from './validate-tree-depth'
 
 const EMPTY: Item[] = []
 
@@ -17,7 +19,8 @@ const EMPTY: Item[] = []
 export function SortableTreeInput(props: ArrayOfObjectsInputProps): React.JSX.Element {
   const {members, onChange, onItemOpen, onPathFocus, path, schemaType} = props
 
-  const maxDepth = schemaType.options?.maxDepth ?? 3
+  const maxDepth = schemaType.options?.maxDepth ?? DEFAULT_MAX_DEPTH
+  const childrenField = schemaType.options?.childrenField || DEFAULT_CHILDREN_FIELD
 
   const items = useMemo(
     () => (Array.isArray(props.value) ? props.value.filter(isTreeItem) : EMPTY),
@@ -48,10 +51,10 @@ export function SortableTreeInput(props: ArrayOfObjectsInputProps): React.JSX.El
   return (
     <Stack gap={2} style={{position: 'relative'}}>
       <Tree
-        members={members}
         props={props}
         items={items}
         maxDepth={maxDepth}
+        childrenField={childrenField}
         readOnly={props.readOnly}
         onPatch={handlePatch}
         onItemOpen={handleItemOpen}

@@ -1,6 +1,6 @@
 /**
  * An item in the tree: an array member with a `_key`, its own fields, and optionally nested
- * `children`.
+ * items in `children` (or the field set with the tree field's `options.childrenField`).
  *
  * @public
  */
